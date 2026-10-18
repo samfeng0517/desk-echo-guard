@@ -1,0 +1,27 @@
+# 複製成 echoguard.toml 後修改，執行：python -m echoguard --config echoguard.toml
+# 鍵名 = 命令列長選項名稱（- 或 _ 都可以）；命令列參數會覆蓋這裡的值。
+# 裝置名稱用「部分字串、不分大小寫」比對，先跑 python -m echoguard --list-devices 看名稱。
+
+[devices]
+mic = "USB"                   # 實體麥克風
+speaker = "Realtek"           # 真正的喇叭（回聲參考 + Siri 防護輸出）
+out = "CABLE Input"           # VB-Cable 播放端；Discord/LINE 麥克風選 "CABLE Output"
+
+[aec]
+engine = "webrtc"             # webrtc | speex | nlms | off | auto
+noise_suppression = true
+high_pass = true
+agc = false
+delay_ms = 0                  # 參考訊號額外延遲（webrtc 通常不用設）
+mic_delay_ms = 0              # 只有 --calibrate 顯示參考訊號「晚到」時才需要
+# ref_buffer_ms = 20
+# out_buffer_ms = 40
+
+[siri]
+siri_guard = false
+call_in = "CABLE-A Output"    # Discord/LINE 的「輸出裝置」設成 CABLE-A Input
+siri_mode = "always"          # detect（需模型）| sibilant | always
+# siri_model = "models/hey_siri.onnx"
+siri_profile = "apple"        # apple | apple-deep | apple-wide | formant
+siri_threshold = 0.5
+siri_lookahead_s = 1.0

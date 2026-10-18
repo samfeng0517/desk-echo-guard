@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=7
+pystoi>=0.4             # STOI intelligibility metric in tests (optional)
+# experiments/ also need: piper-tts openwakeword onnxruntime

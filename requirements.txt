@@ -1,0 +1,6 @@
+numpy>=1.24
+scipy>=1.10
+soundcard>=0.4.3        # WASAPI capture/playback + speaker loopback (Windows)
+livekit>=1.0            # WebRTC AudioProcessing (AEC3 / NS / HPF), prebuilt for Windows
+pyaec>=1.0.1            # SpeexDSP echo canceller fallback (bundled DLL)
+tomli>=2.0; python_version < "3.11"
