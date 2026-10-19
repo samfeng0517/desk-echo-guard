@@ -43,6 +43,7 @@ def test_gui_start_stop_and_config_roundtrip(root, tmp_path):
     cfg = tmp_path / "gui.toml"
     gui = EchoGuardGUI(root, backend=be, config_path=str(cfg))
     assert "USB Mic" in gui.cb_mic["values"] and DEFAULT in gui.cb_mic["values"]
+    assert getattr(gui, "_icon", None) is not None or os.name == "nt"  # icon loaded
 
     gui.v_mic.set("USB Mic")
     gui.v_speaker.set("Speakers")

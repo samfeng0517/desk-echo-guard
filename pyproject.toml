@@ -30,5 +30,8 @@ echoguard-gui = "echoguard.gui:main"
 [tool.setuptools]
 packages = ["echoguard"]
 
+[tool.setuptools.package-data]
+echoguard = ["assets/*.ico", "assets/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

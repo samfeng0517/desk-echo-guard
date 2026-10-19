@@ -68,12 +68,24 @@ class EchoGuardGUI:
         self.settings = self._load_settings()
 
         root.title("Desk Echo Guard")
+        self._set_icon()
         root.minsize(620, 560)
         self._build()
         self._apply_settings_to_widgets(self.settings)
         self.refresh_devices()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(200, self._poll)
+
+    def _set_icon(self):
+        assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+        try:
+            if sys.platform == "win32":
+                self.root.iconbitmap(default=os.path.join(assets, "icon.ico"))
+            else:
+                self._icon = tk.PhotoImage(file=os.path.join(assets, "icon.png"))
+                self.root.iconphoto(True, self._icon)
+        except (tk.TclError, OSError):
+            pass  # a missing icon must never stop the program
 
     # ----------------------------------------------------------- settings io
     def _load_settings(self) -> Settings:

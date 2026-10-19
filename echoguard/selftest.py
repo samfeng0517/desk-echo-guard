@@ -46,6 +46,11 @@ def run() -> tuple[bool, list[str]]:
         ok = False
         lines.append("FAIL: " + traceback.format_exc())
 
+    import os
+    icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.ico")
+    ok &= os.path.exists(icon)
+    lines.append(("ok   " if os.path.exists(icon) else "FAIL ") + "window icon bundled")
+
     try:
         import openwakeword.model  # noqa: F401
         lines.append("ok   openwakeword importable (detect mode)")
