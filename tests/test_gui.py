@@ -41,7 +41,7 @@ def test_gui_start_stop_and_config_roundtrip(root, tmp_path):
                     loopbacks={"Speakers": (sc.ref, 0.0)},
                     outputs={"CABLE Input": 0.0, "Speakers": 0.0})
     cfg = tmp_path / "gui.toml"
-    gui = EchoGuardGUI(root, backend=be, config_path=str(cfg))
+    gui = EchoGuardGUI(root, backend=be, config_path=str(cfg), use_tray=False)
     assert "USB Mic" in gui.cb_mic["values"] and DEFAULT in gui.cb_mic["values"]
     assert getattr(gui, "_icon", None) is not None or os.name == "nt"  # icon loaded
 
@@ -73,3 +73,60 @@ def test_gui_start_stop_and_config_roundtrip(root, tmp_path):
     s = gui2.collect_settings()
     assert s.mic == "USB Mic" and s.engine == "nlms" and s.siri_guard is True
     assert s.siri_mode == "always"
+
+
+class _FakeTray:
+    def __init__(self):
+        self.notes, self.stopped, self.running = [], False, None
+
+    def notify(self, msg):
+        self.notes.append(msg)
+
+    def set_running(self, running):
+        self.running = running
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_close_hides_to_tray_and_quit_from_tray(root, tmp_path):
+    from echoguard.gui import EchoGuardGUI
+    be = SimBackend(inputs={}, loopbacks={}, outputs={"CABLE Input": 0.0})
+    gui = EchoGuardGUI(root, backend=be, config_path=str(tmp_path / "g.toml"), use_tray=False)
+    gui.tray = tray = _FakeTray()
+    root.deiconify()
+    gui.on_close()
+    _pump(root, 0.2)
+    assert root.state() == "withdrawn" and len(tray.notes) == 1
+    gui.cmdq.put("show")
+    _pump(root, 0.4)
+    assert root.state() == "normal"
+    gui.cmdq.put("quit")
+    _pump(root, 0.4)
+    assert tray.stopped
+    with pytest.raises(tk.TclError):
+        root.winfo_exists()
+
+
+def test_autostart_command_points_at_this_install():
+    from echoguard import winutil
+    cmd = winutil.autostart_command()
+    assert winutil.AUTOSTART_FLAG in cmd and "echoguard.gui" in cmd
+
+
+def test_autostart_flag_parsed(monkeypatch):
+    from echoguard import gui as gui_mod
+    seen = {}
+
+    class Stub:
+        def __init__(self, root, backend=None, config_path=None, autostart=False):
+            seen["autostart"] = autostart
+            root.destroy()
+
+    monkeypatch.setattr(gui_mod, "EchoGuardGUI", Stub)
+    monkeypatch.setattr(gui_mod.tk.Tk, "mainloop", lambda self: None)
+    try:
+        gui_mod.main(["--autostart"])
+    except tk.TclError:
+        pytest.skip("no display")
+    assert seen["autostart"] is True

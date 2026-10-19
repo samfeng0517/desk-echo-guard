@@ -6,7 +6,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --name DeskEchoGu
   --icon echoguard\assets\icon.ico --add-data "echoguard\assets;echoguard\assets" ^
   --paths . ^
   --collect-all livekit --collect-all pyaec --collect-data soundcard ^
-  --collect-data openwakeword --hidden-import openwakeword.model ^
+  --collect-data openwakeword --hidden-import openwakeword.model --hidden-import pystray._win32 ^
   --exclude-module torch --exclude-module matplotlib ^
   --exclude-module pytest --exclude-module IPython ^
   packaging\desk_echo_guard.py || exit /b 1

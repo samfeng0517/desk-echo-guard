@@ -18,8 +18,10 @@ import tkinter as tk
 from dataclasses import fields
 from tkinter import filedialog, messagebox, ttk
 
+from . import winutil
 from .app import EchoGuardApp, Settings, calibrate
 from .cli import load_config, save_config, settings_from_dict
+from .tray import Tray
 
 DEFAULT = "（系統預設）"
 ENGINES = [("auto", "自動（webrtc 優先）"), ("webrtc", "WebRTC AEC3（推薦）"),
@@ -28,8 +30,8 @@ ENGINES = [("auto", "自動（webrtc 優先）"), ("webrtc", "WebRTC AEC3（推�
 MODES = [("always", "always：一律陷波（不加延遲）"),
          ("sibilant", "sibilant：偵測 /s/ 音（延遲約 1 秒）"),
          ("detect", "detect：喚醒詞模型（需 .onnx，延遲約 1 秒）")]
-PROFILES = [("apple", "apple：仿 Apple 3/4/5/6 kHz（較不明顯）"),
-            ("apple-deep", "apple-deep：同上、更深"),
+PROFILES = [("apple-deep", "apple-deep：仿 Apple 3/4/5/6 kHz、深陷波（推薦）"),
+            ("apple", "apple：同上、較淺（可能擋不住）"),
             ("apple-wide", "apple-wide：2.8–6.5 kHz"),
             ("formant", "formant：再削 1–3 kHz（較有效、聲音較悶）")]
 
@@ -58,8 +60,13 @@ def _label_for(pairs, key):
 
 
 class EchoGuardGUI:
-    def __init__(self, root: tk.Tk, backend=None, config_path: str | None = None):
+    def __init__(self, root: tk.Tk, backend=None, config_path: str | None = None,
+                 autostart: bool = False, use_tray: bool = True):
         self.root = root
+        self.scale = winutil.ui_scale(root)
+        self.cmdq: queue.Queue = queue.Queue()  # tray thread -> Tk thread
+        self.tray: Tray | None = None
+        self._tray_hint_shown = False
         self.backend = backend
         self.config_path = config_path or default_config_path()
         self.app: EchoGuardApp | None = None
@@ -69,20 +76,38 @@ class EchoGuardGUI:
 
         root.title("Desk Echo Guard")
         self._set_icon()
-        root.minsize(620, 560)
+        root.minsize(self.px(620), self.px(600))
         self._build()
         self._apply_settings_to_widgets(self.settings)
         self.refresh_devices()
+        if use_tray:
+            self.tray = Tray.create(self._icon_path("icon.png"), self.cmdq.put)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(200, self._poll)
+        winutil.refresh_autostart()
+        if autostart:  # launched at Windows sign-in: stay in the background
+            if self.tray is not None:
+                self.root.withdraw()
+            else:
+                self.root.iconify()
+            self.root.after(1000, self._auto_start, 1)
+
+    def px(self, n: float) -> int:
+        """Scale a 96-DPI pixel size to the screen (fonts scale on their own)."""
+        return int(round(n * self.scale))
+
+    @staticmethod
+    def _icon_path(name: str) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", name)
 
     def _set_icon(self):
-        assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
         try:
             if sys.platform == "win32":
-                self.root.iconbitmap(default=os.path.join(assets, "icon.ico"))
+                ico = self._icon_path("icon.ico")
+                self.root.iconbitmap(default=ico)
+                winutil.set_window_icon(self.root, ico)  # exact size for this DPI
             else:
-                self._icon = tk.PhotoImage(file=os.path.join(assets, "icon.png"))
+                self._icon = tk.PhotoImage(file=self._icon_path("icon.png"))
                 self.root.iconphoto(True, self._icon)
         except (tk.TclError, OSError):
             pass  # a missing icon must never stop the program
@@ -155,13 +180,14 @@ class EchoGuardGUI:
 
     # ---------------------------------------------------------------- layout
     def _build(self):
-        pad = {"padx": 6, "pady": 3}
-        frm = ttk.Frame(self.root, padding=8)
+        px = self.px
+        pad = {"padx": px(6), "pady": px(3)}
+        frm = ttk.Frame(self.root, padding=px(8))
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(0, weight=1)
 
         # devices
-        dev = ttk.LabelFrame(frm, text="裝置", padding=6)
+        dev = ttk.LabelFrame(frm, text="裝置", padding=px(6))
         dev.grid(row=0, column=0, sticky="ew", **pad)
         dev.columnconfigure(1, weight=1)
         self.v_mic, self.v_speaker = tk.StringVar(), tk.StringVar()
@@ -175,7 +201,7 @@ class EchoGuardGUI:
         self.btn_refresh.grid(row=0, column=2, rowspan=2, **pad)
 
         # aec
-        aec = ttk.LabelFrame(frm, text="回聲消除", padding=6)
+        aec = ttk.LabelFrame(frm, text="回聲消除", padding=px(6))
         aec.grid(row=1, column=0, sticky="ew", **pad)
         aec.columnconfigure(1, weight=1)
         self.v_engine = tk.StringVar()
@@ -203,7 +229,7 @@ class EchoGuardGUI:
                   foreground="#666").grid(row=3, column=1, columnspan=3, sticky="w")
 
         # siri
-        siri = ttk.LabelFrame(frm, text="Hey Siri 防誤觸", padding=6)
+        siri = ttk.LabelFrame(frm, text="Hey Siri 防誤觸", padding=px(6))
         siri.grid(row=2, column=0, sticky="ew", **pad)
         siri.columnconfigure(1, weight=1)
         self.v_siri = tk.BooleanVar()
@@ -245,9 +271,16 @@ class EchoGuardGUI:
         self.v_debug = tk.StringVar()
         ttk.Label(bar, text="除錯錄音資料夾").pack(side="left", padx=(16, 2))
         ttk.Entry(bar, textvariable=self.v_debug, width=14).pack(side="left")
+        self.v_autostart = tk.BooleanVar(value=winutil.get_autostart() is not None)
+        self.chk_autostart = ttk.Checkbutton(
+            frm, text="登入 Windows 時自動開啟並開始（使用已儲存的設定）",
+            variable=self.v_autostart, command=self._toggle_autostart)
+        self.chk_autostart.grid(row=5, column=0, sticky="w", **pad)
+        if not winutil.IS_WIN:
+            self.chk_autostart.configure(state="disabled")
 
         # status
-        st = ttk.LabelFrame(frm, text="狀態", padding=6)
+        st = ttk.LabelFrame(frm, text="狀態", padding=px(6))
         st.grid(row=4, column=0, sticky="nsew", **pad)
         frm.rowconfigure(4, weight=1)
         self.v_status = tk.StringVar(value="已停止")
@@ -258,7 +291,7 @@ class EchoGuardGUI:
         self.meters = {}
         for i, (k, label) in enumerate((("mic", "麥克風"), ("ref", "喇叭"), ("out", "輸出"))):
             ttk.Label(meters, text=label, width=6).grid(row=i, column=0, sticky="w")
-            bar_ = ttk.Progressbar(meters, maximum=60, length=300)
+            bar_ = ttk.Progressbar(meters, maximum=60, length=px(300))
             bar_.grid(row=i, column=1, sticky="ew", padx=4)
             val = ttk.Label(meters, text="", width=9)
             val.grid(row=i, column=2)
@@ -268,9 +301,10 @@ class EchoGuardGUI:
         self.txt.pack(fill="both", expand=True)
 
     def _combo(self, parent, row, label, var):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=3)
+        pad = {"padx": self.px(6), "pady": self.px(3)}
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", **pad)
         cb = ttk.Combobox(parent, textvariable=var)
-        cb.grid(row=row, column=1, sticky="ew", padx=6, pady=3)
+        cb.grid(row=row, column=1, sticky="ew", **pad)
         return cb
 
     def _update_siri_state(self):
@@ -330,7 +364,8 @@ class EchoGuardGUI:
         def walk(w):
             for c in w.winfo_children():
                 if isinstance(c, (ttk.Combobox, ttk.Entry, ttk.Spinbox, ttk.Checkbutton,
-                                  ttk.Button)) and c is not self.btn_start:
+                                  ttk.Button)) and c not in (self.btn_start,
+                                                             self.chk_autostart):
                     if running:
                         c.configure(state="disabled")
                     else:
@@ -338,6 +373,8 @@ class EchoGuardGUI:
                 walk(c)
         walk(self.root)
         self.btn_start.configure(text="■ 停止" if running else "▶ 開始")
+        if self.tray is not None:
+            self.tray.set_running(running)
         if not running:
             self._update_siri_state()
 
@@ -349,12 +386,15 @@ class EchoGuardGUI:
         else:
             self.stop()
 
-    def start(self):
+    def start(self, interactive: bool = True) -> bool:
         st = self.collect_settings()
         if st.siri_guard and st.siri_mode == "detect" and not st.siri_model:
-            messagebox.showwarning("Desk Echo Guard", "detect 模式需要選擇模型檔，"
-                                   "或改用 always / sibilant 模式。")
-            return
+            msg = "detect 模式需要選擇模型檔，或改用 always / sibilant 模式。"
+            if interactive:
+                messagebox.showwarning("Desk Echo Guard", msg)
+            else:
+                self.log(msg)
+            return False
         self.save(quiet=True)
         app = EchoGuardApp(st, self._get_backend(), log=self.log)
         try:
@@ -364,12 +404,44 @@ class EchoGuardGUI:
                 app.stop()
             except Exception:
                 pass
-            messagebox.showerror("Desk Echo Guard", f"無法啟動：\n{e}")
-            return
+            if interactive:
+                messagebox.showerror("Desk Echo Guard", f"無法啟動：\n{e}")
+            else:
+                self.log(f"無法啟動：{e}")
+            return False
         self.app = app
         self._set_running_ui(True)
         self.v_status.set("執行中 — 對方應該聽不到回音了")
         self.log("已開始。")
+        return True
+
+    AUTO_START_TRIES = 12  # audio devices (VB-Cable) can appear late after sign-in
+
+    def _auto_start(self, attempt: int):
+        if self.app is not None or self.busy:
+            return
+        if attempt > 1:
+            self.refresh_devices()
+        if self.start(interactive=False):
+            return
+        if attempt < self.AUTO_START_TRIES:
+            self.log(f"自動開始失敗，5 秒後重試（{attempt}/{self.AUTO_START_TRIES}）")
+            self.root.after(5000, self._auto_start, attempt + 1)
+        else:
+            self.show_window()
+            self.v_status.set("自動開始失敗，請檢查裝置後按「▶ 開始」")
+
+    def _toggle_autostart(self):
+        want = bool(self.v_autostart.get())
+        try:
+            if want:
+                self.save(quiet=True)  # sign-in start uses the saved settings
+            winutil.set_autostart(want)
+        except OSError as e:
+            self.v_autostart.set(not want)
+            messagebox.showerror("Desk Echo Guard", f"無法變更開機自動啟動：\n{e}")
+            return
+        self.log("已設定：登入 Windows 時自動開啟並開始。" if want else "已取消開機自動啟動。")
 
     def stop(self, then=None):
         app, self.app = self.app, None
@@ -413,6 +485,28 @@ class EchoGuardGUI:
         threading.Thread(target=work, daemon=True).start()
 
     def on_close(self):
+        """The window's X hides to the tray; quit from the tray menu."""
+        if self.tray is None:
+            self.quit()
+            return
+        try:
+            self.save(quiet=True)
+        except Exception:
+            pass
+        self.root.withdraw()
+        if not self._tray_hint_shown:
+            self._tray_hint_shown = True
+            self.tray.notify("Desk Echo Guard 仍在背景執行。要結束請在右下角圖示按右鍵 →「結束」。")
+
+    def show_window(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def quit(self):
+        if self.tray is not None:
+            self.tray.stop()
+            self.tray = None
         try:
             self.save(quiet=True)
         except Exception:
@@ -423,6 +517,23 @@ class EchoGuardGUI:
 
     # ----------------------------------------------------------------- poll
     def _poll(self):
+        try:
+            while True:
+                cmd = self.cmdq.get_nowait()
+                if cmd == "show":
+                    self.show_window()
+                elif cmd == "toggle":
+                    if self.app is None:
+                        if not self.start(interactive=False):
+                            self.show_window()  # let the user see why
+                    else:
+                        self.stop()
+                elif cmd == "quit":
+                    self.quit()
+                    if self.app is None and not self.busy:
+                        return  # window already destroyed
+        except queue.Empty:
+            pass
         try:
             while True:
                 item = self.logq.get_nowait()
@@ -477,15 +588,20 @@ class EchoGuardGUI:
 def main(argv=None, backend=None):
     ap = argparse.ArgumentParser(prog="echoguard-gui")
     ap.add_argument("--config", help=f"settings file (default {default_config_path()})")
+    ap.add_argument(winutil.AUTOSTART_FLAG, action="store_true",
+                    help="start in the tray and begin processing (used at Windows sign-in)")
     args = ap.parse_args(argv)
+    winutil.enable_dpi_awareness()  # before Tk() so fonts and sizes follow the DPI
+    if backend is None and not winutil.claim_single_instance():
+        if not args.autostart:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showinfo("Desk Echo Guard", "Desk Echo Guard 已經在執行中。\n"
+                                "請從右下角系統匣的圖示開啟視窗。")
+            root.destroy()
+        return 0
     root = tk.Tk()
-    if sys.platform == "win32":
-        try:  # crisp text on high-DPI screens
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-    EchoGuardGUI(root, backend=backend, config_path=args.config)
+    EchoGuardGUI(root, backend=backend, config_path=args.config, autostart=args.autostart)
     root.mainloop()
     return 0
 
