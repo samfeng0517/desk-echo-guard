@@ -2,6 +2,7 @@
 
     DeskEchoGuard.exe                      open the settings window
     DeskEchoGuard.exe --self-test out.txt  offline check, report to out.txt
+    DeskEchoGuard.exe --vcable rename R    rename the VB-Cable devices (run elevated by the GUI)
 """
 
 import multiprocessing
@@ -17,6 +18,9 @@ if __name__ == "__main__":
         sys.stderr = open(os.devnull, "w")
     if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
         from echoguard.selftest import main
+        sys.exit(main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "--vcable":
+        from echoguard.vcable import main
         sys.exit(main(sys.argv[2:]))
     from echoguard.gui import main
     sys.exit(main(sys.argv[1:]))

@@ -11,6 +11,25 @@
 3. 要用 [Hey Siri 防誤觸](siri-guard.md)的話，還要第二條虛擬線：在同一頁下載 **VB-CABLE A+B**（捐款軟體）。裝好後會多出 CABLE-A / CABLE-B。
 4. 建議到「控制台 → 聲音」，把 CABLE 和喇叭的「進階」格式都設成 **48000 Hz**。程式內部用 48 kHz；Windows 共用模式會自動轉換，但取樣率一致最省事。
 
+### 讓 VB-Cable 的名稱好懂一點（建議）
+
+VB-Cable 的名稱很容易搞混：「CABLE Input」其實是喇叭，「CABLE Output」才是麥克風。程式開啟後，「裝置」區會顯示有沒有找到 VB-Cable。按右邊的「**改成好懂的名稱…**」，再在 Windows 的確認視窗按「是」，就會改成下面的名稱：
+
+| VB-Cable 原本的名稱 | 改名後 | 用途 |
+|---|---|---|
+| `CABLE Output`（錄音裝置） | **`回聲消除麥克風`** | Discord / LINE 的**麥克風**選這個 |
+| `CABLE-A Input`（播放裝置） | **`Siri防護喇叭`** | 開 Siri 防護時，Discord / LINE 的**輸出裝置**選這個 |
+| `CABLE Input`（播放裝置） | `EchoGuard 內部輸出（勿選）` | 程式自己用，通話軟體不要選 |
+| `CABLE-A Output`（錄音裝置） | `EchoGuard 內部輸入（勿選）` | 程式自己用，通話軟體不要選 |
+
+- 括號裡的驅動名稱（例如 `(VB-Audio Virtual Cable)`）改不掉，會留著。
+- 改完要**重新開啟 Discord / LINE** 才會看到新名稱，然後再選一次麥克風。
+- 這等於在「控制台 → 聲音 → 裝置內容」手動改名，只改顯示的名稱，不影響驅動。改名前後程式都找得到裝置，不用改任何設定。
+- 想改回原本的名稱：勾「顯示進階裝置選項」→「還原 VB-Cable 原本名稱」。命令列可以在系統管理員命令提示字元執行 `python -m echoguard --rename-vbcable rename`（或 `restore`）。
+- 用不到的 `CABLE In 16ch`、`CABLE-B` 不會被改名。
+
+下面的說明以原本的名稱為主；改過名的話，`CABLE Output` 就是「回聲消除麥克風」，`CABLE-A Input` 就是「Siri防護喇叭」。
+
 ## 2. 安裝程式
 
 ### 方法 A：下載 exe（推薦，不用裝 Python）
@@ -56,7 +75,7 @@ python -m echoguard --list-engines
 
 整條路怎麼接，見 [運作原理](how-it-works.md#接線)。重點是兩件事：
 
-- **麥克風一律選 `CABLE Output`**。
+- **麥克風一律選 `CABLE Output`**（改過名的話是「回聲消除麥克風」）。
 - **通話軟體自己的回音消除關掉**，其他處理照下表設定。
 - **通話軟體的噪音抑制可以開**（例如 Discord 的 Krisp）。它處理的是本程式**已經消除回聲之後**的聲音，不會影響回聲消除；又比本程式的 WebRTC 降噪更會去除機械鍵盤聲、滑鼠聲這類短促的敲擊聲。
 
@@ -66,8 +85,8 @@ python -m echoguard --list-engines
 
 | 項目 | 設定 |
 |---|---|
-| 輸入裝置 | `CABLE Output (VB-Audio Virtual Cable)` |
-| 輸出裝置 | 不開 Siri 防護：你的喇叭<br>開 Siri 防護：`CABLE-A Input` |
+| 輸入裝置 | `CABLE Output (VB-Audio Virtual Cable)`<br>改過名：`回聲消除麥克風 (VB-Audio Virtual Cable)` |
+| 輸出裝置 | 不開 Siri 防護：你的喇叭<br>開 Siri 防護：`CABLE-A Input`（改過名：`Siri防護喇叭`） |
 | 回音消除 | 關 |
 | 噪音抑制 | **Krisp**（建議，可去除鍵盤聲） |
 | 自動增益控制 | 關 |
@@ -78,8 +97,8 @@ python -m echoguard --list-engines
 
 設定 → 通話：
 
-- 麥克風選 `CABLE Output`。
-- 喇叭選你的喇叭；開 Siri 防護時選 `CABLE-A Input`。
+- 麥克風選 `CABLE Output`（改過名：`回聲消除麥克風`）。
+- 喇叭選你的喇叭；開 Siri 防護時選 `CABLE-A Input`（改過名：`Siri防護喇叭`）。
 
 LINE 自己的回音處理通常沒有開關，影響不大。若對方覺得聲音忽大忽小，可以切換程式的「自動增益」比較看看。
 

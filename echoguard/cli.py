@@ -35,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
                                     "with - or _)")
     p.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     p.add_argument("--list-engines", action="store_true", help="list available AEC engines")
+    p.add_argument("--rename-vbcable", choices=["rename", "restore"],
+                   help="give the VB-Cable devices descriptive names (or restore VB-Audio's); "
+                        "run from an administrator prompt")
     p.add_argument("--calibrate", action="store_true",
                    help="play noise bursts, measure speaker->mic delay, print a --delay-ms hint")
 
@@ -211,6 +214,12 @@ def main(argv=None) -> int:
               f"wrote {args.sim_guard_out}")
         return 0
 
+    if args.rename_vbcable:
+        from .vcable import rename_endpoints
+        for line in rename_endpoints(restore=args.rename_vbcable == "restore") or ["nothing to change"]:
+            print(line)
+        return 0
+
     from .io_backend import SoundcardBackend
     backend = SoundcardBackend()
 
@@ -238,12 +247,15 @@ def main(argv=None) -> int:
         return 0
 
     from .app import EchoGuardApp
+    from .vcable import display_name
     app = EchoGuardApp(st, backend)
+    devs = backend.list_devices()
     print(f"echoguard {__version__}: mic={st.mic or '(default)'} speaker={st.speaker or '(default)'}"
-          f" -> {st.out}.  In Discord/LINE choose 'CABLE Output' as the microphone.  Ctrl+C stops.")
+          f" -> {st.out}.  In Discord/LINE choose '{display_name(devs, 'virtual_mic')}' as the "
+          f"microphone.  Ctrl+C stops.")
     if st.siri_guard:
-        print(f"siri guard: set Discord/LINE OUTPUT device to the playback side of "
-              f"'{st.call_in}' (e.g. CABLE-A Input).")
+        print(f"siri guard: set Discord/LINE OUTPUT device to "
+              f"'{display_name(devs, 'call_speaker')}'.")
     app.run(args.duration_s)
     return 0
 

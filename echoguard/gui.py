@@ -15,10 +15,11 @@ import queue
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from dataclasses import fields
 from tkinter import filedialog, messagebox, ttk
 
-from . import winutil
+from . import vcable, winutil
 from .app import EchoGuardApp, Settings, calibrate
 from .cli import load_config, save_config, settings_from_dict
 from .tray import Tray
@@ -71,6 +72,8 @@ class EchoGuardGUI:
         self.config_path = config_path or default_config_path()
         self.app: EchoGuardApp | None = None
         self.busy = False
+        self.devices = []
+        self.cable = vcable.status([])
         self.logq: queue.Queue = queue.Queue()
         self.settings = self._load_settings()
 
@@ -194,11 +197,31 @@ class EchoGuardGUI:
         self.v_out, self.v_call_in = tk.StringVar(), tk.StringVar()
         self.cb_mic = self._combo(dev, 0, "實體麥克風", self.v_mic)
         self.cb_speaker = self._combo(dev, 1, "喇叭（回聲參考）", self.v_speaker)
-        self.cb_out = self._combo(dev, 2, "虛擬麥克風輸出", self.v_out)
-        ttk.Label(dev, text="Discord / LINE 的麥克風請選「CABLE Output」",
-                  foreground="#666").grid(row=3, column=1, sticky="w")
         self.btn_refresh = ttk.Button(dev, text="重新整理裝置", command=self.refresh_devices)
         self.btn_refresh.grid(row=0, column=2, rowspan=2, **pad)
+        self.v_cable = tk.StringVar()
+        ttk.Label(dev, text="虛擬音效線").grid(row=2, column=0, sticky="nw", **pad)
+        ttk.Label(dev, textvariable=self.v_cable, wraplength=px(380), justify="left"
+                  ).grid(row=2, column=1, sticky="w", **pad)
+        self.btn_cable = ttk.Button(dev, text="", command=self._cable_action)
+        self.btn_cable.grid(row=2, column=2, sticky="n", **pad)
+        # VB-Cable endpoints are found automatically; picking them by hand is
+        # only for unusual setups, so it stays folded away
+        self.v_adv = tk.BooleanVar(value=False)
+        ttk.Checkbutton(dev, text="顯示進階裝置選項", variable=self.v_adv,
+                        command=self._update_adv).grid(row=3, column=0, columnspan=3,
+                                                       sticky="w", **pad)
+        self.adv = ttk.Frame(dev)
+        self.adv.grid(row=4, column=0, columnspan=3, sticky="ew")
+        self.adv.columnconfigure(1, weight=1)
+        self.cb_out = self._combo(self.adv, 0, "虛擬麥克風輸出", self.v_out)
+        self.cb_call = self._combo(self.adv, 1, "通話聲音來源（Siri）", self.v_call_in)
+        ttk.Label(self.adv, text="通常不用改：VB-Cable 會自動找到，改過名稱也找得到",
+                  foreground="#666").grid(row=2, column=1, sticky="w")
+        self.btn_restore = ttk.Button(self.adv, text="還原 VB-Cable 原本名稱",
+                                      command=lambda: self._rename_cable(restore=True))
+        self.btn_restore.grid(row=3, column=1, sticky="w", **pad)
+        self._update_adv()
 
         # aec
         aec = ttk.LabelFrame(frm, text="回聲消除", padding=px(6))
@@ -233,10 +256,9 @@ class EchoGuardGUI:
         siri.grid(row=2, column=0, sticky="ew", **pad)
         siri.columnconfigure(1, weight=1)
         self.v_siri = tk.BooleanVar()
-        ttk.Checkbutton(siri, text="啟用（Discord / LINE 的輸出裝置要改成 CABLE-A Input）",
-                        variable=self.v_siri, command=self._update_siri_state
-                        ).grid(row=0, column=0, columnspan=3, sticky="w", **pad)
-        self.cb_call = self._combo(siri, 1, "通話聲音來源", self.v_call_in)
+        self.chk_siri = ttk.Checkbutton(siri, text="啟用", variable=self.v_siri,
+                                        command=self._update_siri_state)
+        self.chk_siri.grid(row=0, column=0, columnspan=3, sticky="w", **pad)
         self.v_mode, self.v_profile = tk.StringVar(), tk.StringVar()
         ttk.Label(siri, text="模式").grid(row=2, column=0, sticky="w", **pad)
         self.cb_mode = ttk.Combobox(siri, textvariable=self.v_mode, values=_labels(MODES),
@@ -307,6 +329,72 @@ class EchoGuardGUI:
         cb.grid(row=row, column=1, sticky="ew", **pad)
         return cb
 
+    def _update_adv(self):
+        if self.v_adv.get():
+            self.adv.grid()
+        else:
+            self.adv.grid_remove()
+
+    def _update_cable_ui(self):
+        c = self.cable
+        mic = vcable.display_name(self.devices, "virtual_mic")
+        spk = vcable.display_name(self.devices, "call_speaker")
+        if not c["found"]:
+            self.v_cable.set("✘ 找不到 VB-Cable。請先安裝 VB-CABLE 驅動，裝好後重新開機。")
+            self.btn_cable.configure(text="下載 VB-Cable")
+            self.btn_cable.grid()
+        else:
+            text = f"✔ 已找到。Discord / LINE 的麥克風請選「{mic}」"
+            if not c["renamed"]:
+                text += "\n（可以按右邊按鈕把 VB-Cable 改成好懂的名稱）"
+            self.v_cable.set(text)
+            self.btn_cable.configure(text="改成好懂的名稱…")
+            if c["renamed"]:
+                self.btn_cable.grid_remove()
+            else:
+                self.btn_cable.grid()
+        on_win = winutil.IS_WIN and self.app is None and not self.busy
+        if c["found"]:
+            self.btn_cable.configure(state="normal" if on_win else "disabled")
+        else:
+            self.btn_cable.configure(state="normal")
+        self.btn_restore.configure(state="normal" if on_win and c["renamed"] else "disabled")
+        if c["names"]["call_speaker"]:
+            siri = f"啟用（Discord / LINE 的輸出裝置要改成「{spk}」）"
+        else:
+            siri = "啟用（需要另外安裝 VB-CABLE A+B，見說明文件）"
+        self.chk_siri.configure(text=siri)
+
+    def _cable_action(self):
+        if not self.cable["found"]:
+            webbrowser.open(vcable.DOWNLOAD_URL)
+        else:
+            self._rename_cable(restore=False)
+
+    def _rename_cable(self, restore: bool):
+        if self.busy or self.app is not None or not winutil.IS_WIN:
+            return
+        if restore:
+            msg = "要把 VB-Cable 的裝置名稱還原成 VB-Audio 原本的名稱嗎？"
+        else:
+            lines = "\n".join(f"  {r.original} → {r.renamed}" for r in vcable.ROLES)
+            msg = ("要把 VB-Cable 的裝置改成好懂的名稱嗎？\n\n" + lines +
+                   "\n\nWindows 會跳出確認視窗，請按「是」。"
+                   "\n改完後請重新開啟 Discord / LINE，再選一次麥克風。")
+        if not messagebox.askyesno("Desk Echo Guard", msg):
+            return
+        self.busy = True
+        self._update_cable_ui()
+        self.log("正在變更 VB-Cable 裝置名稱，請在 Windows 確認視窗按「是」…")
+
+        def work():
+            try:
+                res = vcable.run_elevated("restore" if restore else "rename")
+            except Exception as e:
+                res = (False, f"{type(e).__name__}: {e}")
+            self.logq.put(("vcable", res))
+        threading.Thread(target=work, daemon=True).start()
+
     def _update_siri_state(self):
         on = bool(self.v_siri.get()) and self.app is None
         for w in self.siri_widgets:
@@ -342,7 +430,10 @@ class EchoGuardGUI:
         self.cb_speaker["values"] = [DEFAULT] + spks
         self.cb_out["values"] = spks
         self.cb_call["values"] = mics
-        if not any("cable" in n.lower() for n in spks):
+        self.devices = devs
+        self.cable = vcable.status(devs)
+        self._update_cable_ui()
+        if not self.cable["found"]:
             self.log("找不到 VB-Cable（CABLE Input）。請先安裝 VB-CABLE 驅動並重新開機。")
 
     def log(self, msg: str):
@@ -377,6 +468,7 @@ class EchoGuardGUI:
             self.tray.set_running(running)
         if not running:
             self._update_siri_state()
+        self._update_cable_ui()
 
     def toggle(self):
         if self.busy:
@@ -540,6 +632,17 @@ class EchoGuardGUI:
                 if isinstance(item, tuple):
                     kind, then = item
                     self.busy = False
+                    if kind == "vcable":
+                        ok, msg = then
+                        if ok:
+                            self.log(f"已變更裝置名稱：{msg}")
+                            self.log("請重新開啟 Discord / LINE，再選一次麥克風。")
+                        else:
+                            self.log(f"變更裝置名稱失敗：{msg}")
+                        self.refresh_devices()
+                        # Windows can take a moment to publish the new names
+                        self.root.after(1500, self.refresh_devices)
+                        continue
                     if kind == "stopped":
                         self._set_running_ui(False)
                         self.v_status.set("已停止")

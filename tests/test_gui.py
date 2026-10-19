@@ -9,6 +9,7 @@ import pytest
 
 tk = pytest.importorskip("tkinter")
 
+from echoguard import vcable  # noqa: E402
 from echoguard.signals import make_scenario, synth_speech  # noqa: E402
 from echoguard.sim import SimBackend  # noqa: E402
 
@@ -132,3 +133,28 @@ def test_autostart_flag_parsed(monkeypatch):
     except tk.TclError:
         pytest.skip("no display")
     assert seen["autostart"] is True
+
+
+def test_cable_status_follows_device_names(root, tmp_path):
+    from echoguard.gui import EchoGuardGUI
+    be = SimBackend(inputs={"USB Mic": (np.zeros(480, np.float32), 0.0)}, loopbacks={},
+                    outputs={"Speakers": 0.0})
+    gui = EchoGuardGUI(root, backend=be, config_path=str(tmp_path / "g.toml"), use_tray=False)
+    assert "找不到" in gui.v_cable.get() and gui.btn_cable["text"] == "下載 VB-Cable"
+    assert not gui.adv.winfo_ismapped() and not gui.v_adv.get()  # advanced folded away
+
+    be.inputs["CABLE Output (VB-Audio Virtual Cable)"] = (np.zeros(480, np.float32), 0.0)
+    be.output_ppm["CABLE Input (VB-Audio Virtual Cable)"] = 0.0
+    be.output_ppm["CABLE-A Input (VB-Audio Cable A)"] = 0.0
+    gui.refresh_devices()
+    assert "「CABLE Output」" in gui.v_cable.get() and gui.btn_cable.winfo_manager()
+    assert "「CABLE-A Input」" in gui.chk_siri["text"]
+
+    for kind, d in (("mic", be.inputs), ("speaker", be.output_ppm)):
+        for name in list(d):
+            if (r := vcable.role_of(name, kind)):
+                d[name.replace(r.original, r.renamed, 1)] = d.pop(name)
+    gui.refresh_devices()
+    assert "「回聲消除麥克風」" in gui.v_cable.get()
+    assert not gui.btn_cable.winfo_manager()  # nothing left to rename
+    assert "「Siri防護喇叭」" in gui.chk_siri["text"]

@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import FS, FRAME
+from . import FS, FRAME, vcable
 from .aec import AecProcessor, make_engine
 from .buffers import ElasticBuffer
 from .delay import estimate_delay_ms
@@ -178,15 +178,22 @@ class EchoGuardApp:
     def start(self):
         s, b = self.s, self.backend
         self.build_dsp()
+        try:
+            devs = b.list_devices()
+        except Exception:
+            devs = []
+        # "CABLE Input" keeps working after vcable renamed the endpoints
+        out_name = vcable.resolve(s.out, "speaker", devs)
+        call_name = vcable.resolve(s.call_in, "mic", devs)
         streams = []
         mic = b.open_input(s.mic, blocksize=s.blocksize)
         lb = b.open_input(s.speaker, loopback=True, blocksize=s.blocksize)
-        out = b.open_output(s.out, blocksize=s.blocksize)
+        out = b.open_output(out_name, blocksize=s.blocksize)
         streams += [mic, lb, out]
         self._spawn("ref-reader", self._reader, lb, self.ref_buf)
         self._spawn("out-writer", self._writer, out, self.out_buf)
         if self.guard is not None:
-            call = b.open_input(s.call_in, blocksize=s.blocksize)
+            call = b.open_input(call_name, blocksize=s.blocksize)
             spk = b.open_output(s.speaker, blocksize=s.blocksize)
             streams += [call, spk]
             self._spawn("guard-reader", self._reader, call, self.spk_buf,
