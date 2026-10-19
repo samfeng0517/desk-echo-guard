@@ -16,7 +16,7 @@
 ### 方法 A：下載 exe（推薦，不用裝 Python）
 
 1. 到 [Releases](https://github.com/samfeng0517/desk-echo-guard/releases) 下載最新的 `DeskEchoGuard.exe`。
-2. 放在任何資料夾，雙擊就會打開設定視窗，用法見[使用說明](usage.md)。
+2. 放在任何資料夾，雙擊就會開啟設定視窗，用法見[使用說明](usage.md)。
 
 注意：
 

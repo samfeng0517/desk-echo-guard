@@ -9,7 +9,7 @@
 
 ## 方法一：Google Colab（最簡單，約 1 小時以內）
 
-1. 打開 openWakeWord 官方的 Colab 筆記本：
+1. 開啟 openWakeWord 官方的 Colab 筆記本：
    <https://colab.research.google.com/drive/1q1oe2zOyZp7UsB3jJiQ1IFn8z5YfjwEb?usp=sharing>
 2. `target_word` 填 `hey siri`（可再訓練一個 `siri`）。
 3. 依指示執行全部儲存格，最後下載 `hey_siri.onnx`（或 `.tflite`）。
