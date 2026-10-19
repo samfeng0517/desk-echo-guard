@@ -45,7 +45,21 @@
 3. 要用 `--siri-guard` 的話，還要第二條線：在同一頁下載 **VB-CABLE A+B**（捐款軟體）。安裝後會多出 CABLE-A / CABLE-B。
 4. 建議到「控制台 → 聲音」，把 CABLE 和喇叭的「進階」格式都設成 **48000 Hz**。程式內部是 48 kHz，WASAPI 共用模式也會自動轉換，但同一個取樣率最省事。
 
-### 2.2 Python 套件
+### 2.2 最簡單：直接下載 exe（不用裝 Python）
+
+1. 到 [Releases](https://github.com/samfeng0517/desk-echo-guard/releases) 下載最新的 `DeskEchoGuard.exe`。
+2. 放在任何資料夾，雙擊就會打開設定視窗（用法見 3.0 節）。
+
+注意：
+
+- 單一 exe 約 100 MB 以上；第一次開啟要先解壓縮到暫存資料夾，會等 5–15 秒。
+- 這個 exe 沒有程式碼簽章，Windows SmartScreen 可能顯示「Windows 已保護您的電腦」。按「其他資訊 → 仍要執行」即可。
+- 想確認 exe 本身沒問題：在命令提示字元執行 `DeskEchoGuard.exe --self-test report.txt`，再打開 `report.txt`，最後一行應是 `RESULT: PASS`。
+- exe 由 GitHub Actions 在 Windows 上自動打包：每次推到 `main` 都會產生（在 Actions 頁面的 Artifacts）；打 `v*` 標籤時會發佈到 Releases。也可以自己執行 `packaging\build_exe.bat` 打包。
+
+用 exe 的話可以跳過 2.3。
+
+### 2.3 Python 套件（從原始碼執行）
 
 建議用 Python 3.11 或 3.12（64 位元）：
 
@@ -77,7 +91,7 @@ python -m echoguard --list-engines
 
 ### 3.0 圖形介面（不想用命令列的話）
 
-在專案資料夾裡**雙擊 `start_gui.bat`**，會開一個設定視窗（不會跳出黑色命令列視窗）。也可以手動執行 `pythonw -m echoguard.gui`。（`start_gui.bat` 會優先用 2.2 節建立的 `.venv`，沒有的話改用 Python 啟動器 `pyw`。）
+**雙擊 `DeskEchoGuard.exe`**（2.2 節），或在專案資料夾裡雙擊 `start_gui.bat`，會開一個設定視窗（不會跳出黑色命令列視窗）。也可以手動執行 `pythonw -m echoguard.gui`。（`start_gui.bat` 會優先用 2.3 節建立的 `.venv`，沒有的話改用 Python 啟動器 `pyw`。）
 
 - 視窗裡從下拉選單挑麥克風、喇叭和 CABLE Input，選回聲消除引擎，再勾要不要開 Hey Siri 防誤觸，然後按「▶ 開始」。
 - 狀態區會即時顯示麥克風／喇叭／輸出音量條、緩衝和時脈漂移；麥克風太大聲時會提醒。
@@ -375,6 +389,9 @@ echoguard/
   signals.py / metrics.py   合成測試訊號、ERLE / STOI / 頻譜距離等量測
   cli.py          命令列
   gui.py          tkinter 設定視窗（start_gui.bat 啟動）
+  selftest.py     免音效裝置的自我檢測（exe 的 --self-test）
+packaging/        PyInstaller 進入點與 build_exe.bat
+.github/workflows/build-exe.yml   在 Windows 上跑測試、打包 exe、發佈 Release
 tests/            pytest（離線 DSP、執行緒整合、CLI）
 experiments/      TTS + openWakeWord 的評估腳本（需網路）
 tools/train_hey_siri/   自訂 hey siri 模型的訓練設定與說明
