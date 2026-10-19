@@ -8,8 +8,8 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 - **Hey Siri 防誤觸**（選用）：對方說「Hey Siri」時，不會叫醒你的 HomePod / iPhone。做法仿照 Apple 在 WWDC 2026 被觀察到的手法：只在講到「Siri」時削掉幾個窄頻帶，不是靜音。
 
 > **使用前請知道**
-> - 程式只在模擬環境和沒有音效卡的 Windows 機器上驗證過，**還沒在真的喇叭和麥克風上跑過**。要你實測的項目見[這裡](docs/verification.md#需要在-windows-實機驗證的項目)。
-> - Apple 的防誤觸方法沒有官方公開。我們在開源偵測器上測試，仿 Apple 的預設設定**沒有效果**，較強的 `formant` 設定才有效，詳見 [Hey Siri 防誤觸](docs/siri-guard.md)。
+> - 已在 Windows 實機（桌上型喇叭 + 桌上型麥克風，Discord 通話）上使用，回聲消除有效。
+> - Hey Siri 防誤觸至少要用 `apple-deep`（目前的預設）；較淺的 `apple` 擋不住。Apple 的做法沒有官方公開，詳見 [Hey Siri 防誤觸](docs/siri-guard.md)。
 
 ## 快速開始
 
@@ -31,7 +31,7 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 | [使用說明與調校](docs/usage.md) | 設定視窗、命令列與設定檔、常見問題怎麼調 |
 | [Hey Siri 防誤觸](docs/siri-guard.md) | 怎麼選設定、Apple 做法的研究摘要與來源、實測效果 |
 | [運作原理](docs/how-it-works.md) | 接線圖、時脈漂移補償、引擎比較、延遲、程式碼結構 |
-| [驗證結果與限制](docs/verification.md) | 量測數據、已知限制、需要實機驗證的項目 |
+| [驗證結果與限制](docs/verification.md) | 量測數據、實機使用結果、已知限制 |
 | [開發說明](docs/development.md) | 測試、評估腳本、打包 exe 與發佈版本 |
 
 ## 授權

@@ -29,7 +29,7 @@
 
 **建議**
 
-1. 先用預設的 `apple-deep` + `always`（實機回報 `apple` 太淺擋不住，至少要 `apple-deep`），拿另一台裝置播「Hey Siri」影片測試，看 HomePod / iPhone 還會不會被叫醒。
+1. 用預設的 `apple-deep` + `always`（實機上 `apple` 太淺擋不住，至少要 `apple-deep`）。可以拿另一台裝置播「Hey Siri」影片，確認 HomePod / iPhone 不會被叫醒。
 2. 還會被叫醒的話，改用 `formant`。`formant` + `always` 會讓整通電話都變悶，所以最好搭配 `detect` 模式：只有約 1 秒的喚醒詞變悶，其他時間不受影響。代價是要先訓練模型，對方聲音也會延遲約 1 秒。
 
 為什麼這樣建議，見下方[實測效果](#實測效果)。
@@ -115,7 +115,7 @@ STOI 只看約 4.3 kHz 以下的頻段，所以對 `apple` 的高頻陷波不敏
 
 ## 限制
 
-- Apple 的方法沒有公開，對真正 Siri 的效果**無法在雲端驗證**，要你實測。
+- Apple 的方法沒有公開。實機上 `apple` 擋不住 HomePod / iPhone，至少要 `apple-deep`。
 - `detect` 模式要自己訓練模型，這部分**沒有實際訓練和測試過**。
 - `sibilant` 會處理到其他含 s 的字。
 - `detect` / `sibilant` 會讓對方的聲音晚約 1 秒才聽到，對話時感覺得出來；`always` 沒有這個延遲。
