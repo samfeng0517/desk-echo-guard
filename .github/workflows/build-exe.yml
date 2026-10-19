@@ -1,0 +1,57 @@
+name: Build Windows exe
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create releases on tags
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt -r requirements-siri.txt pyinstaller
+      - name: PyInstaller
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name DeskEchoGuard
+          --paths .
+          --collect-all livekit --collect-all pyaec --collect-data soundcard
+          --collect-data openwakeword --hidden-import openwakeword.model
+          --exclude-module torch --exclude-module matplotlib
+          --exclude-module pytest --exclude-module IPython
+          packaging/desk_echo_guard.py
+      - name: Self-test the frozen exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\DeskEchoGuard.exe -ArgumentList '--self-test','selftest.txt' -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { throw "self-test failed ($($p.ExitCode))" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskEchoGuard-windows
+          path: |
+            dist/DeskEchoGuard.exe
+            selftest.txt
+      - name: Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/DeskEchoGuard.exe
+          generate_release_notes: true
