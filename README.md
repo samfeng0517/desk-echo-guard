@@ -36,4 +36,4 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 
 ## 授權
 
-本專案以 [MIT 授權](LICENSE)釋出。exe 內含的第三方套件（numpy、scipy、livekit、pyaec / SpeexDSP、soundcard、openWakeWord、onnxruntime 等）各自依其原本的授權使用，授權檔隨各套件一起包在 exe 裡。VB-Cable 是 VB-Audio 的軟體，需要另外安裝，不包含在本專案內。
+本專案以 [MIT 授權](LICENSE)釋出。exe 內含的第三方套件（numpy、scipy、livekit、pyaec / SpeexDSP、soundcard、openWakeWord、onnxruntime 等）各自依其原本的授權使用。VB-Cable 是 VB-Audio 的軟體，需要另外安裝，不包含在本專案內。
