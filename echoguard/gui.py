@@ -601,8 +601,12 @@ def main(argv=None, backend=None):
             root.destroy()
         return 0
     root = tk.Tk()
-    EchoGuardGUI(root, backend=backend, config_path=args.config, autostart=args.autostart)
-    root.mainloop()
+    gui = EchoGuardGUI(root, backend=backend, config_path=args.config, autostart=args.autostart)
+    try:
+        root.mainloop()
+    finally:  # the tray thread would otherwise keep the process alive
+        if getattr(gui, "tray", None) is not None:
+            gui.tray.stop()
     return 0
 
 
