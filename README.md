@@ -55,7 +55,7 @@
 - 單一 exe 約 100 MB 以上；第一次開啟要先解壓縮到暫存資料夾，會等 5–15 秒。
 - 這個 exe 沒有程式碼簽章，Windows SmartScreen 可能顯示「Windows 已保護您的電腦」。按「其他資訊 → 仍要執行」即可。
 - 想確認 exe 本身沒問題：在命令提示字元執行 `DeskEchoGuard.exe --self-test report.txt`，再打開 `report.txt`，最後一行應是 `RESULT: PASS`。
-- exe 由 GitHub Actions 在 Windows 上自動打包：每次推到 `main` 都會產生（在 Actions 頁面的 Artifacts）；打 `v*` 標籤時會發佈到 Releases。也可以自己執行 `packaging\build_exe.bat` 打包。
+- exe 由 GitHub Actions 在 Windows 上自動打包：每次推到 `main` 都會產生（在 Actions 頁面的 Artifacts）；打 `v*` 標籤，或在 Actions 頁面手動執行「Build Windows exe」並填 `release_tag`，會發佈到 Releases。也可以自己執行 `packaging\build_exe.bat` 打包。
 
 用 exe 的話可以跳過 2.3。
 
