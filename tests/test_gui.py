@@ -69,7 +69,7 @@ def test_gui_start_stop_and_config_roundtrip(root, tmp_path):
 
     # settings were saved on start and load back into a fresh window
     assert cfg.exists()
-    gui2 = EchoGuardGUI(root, backend=be, config_path=str(cfg))
+    gui2 = EchoGuardGUI(root, backend=be, config_path=str(cfg), use_tray=False)
     s = gui2.collect_settings()
     assert s.mic == "USB Mic" and s.engine == "nlms" and s.siri_guard is True
     assert s.siri_mode == "always"
@@ -125,6 +125,8 @@ def test_autostart_flag_parsed(monkeypatch):
 
     monkeypatch.setattr(gui_mod, "EchoGuardGUI", Stub)
     monkeypatch.setattr(gui_mod.tk.Tk, "mainloop", lambda self: None)
+    # a real DeskEchoGuard running on this machine must not make main() bail out
+    monkeypatch.setattr(gui_mod.winutil, "claim_single_instance", lambda: True)
     try:
         gui_mod.main(["--autostart"])
     except tk.TclError:
