@@ -24,6 +24,9 @@ dev = ["pytest>=7", "pystoi>=0.4"]
 [project.scripts]
 echoguard = "echoguard.cli:main"
 
+[project.gui-scripts]
+echoguard-gui = "echoguard.gui:main"
+
 [tool.setuptools]
 packages = ["echoguard"]
 

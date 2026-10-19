@@ -104,6 +104,39 @@ def load_config(path: str) -> dict:
     return flat
 
 
+def _toml_value(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
+    s = str(v).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{s}"'
+
+
+def save_config(path: str, settings: Settings) -> None:
+    """Write every non-None setting as a flat TOML file (readable by
+    load_config / --config)."""
+    import os
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    lines = ["# desk-echo-guard settings (written by the GUI; --config reads it too)"]
+    for f in fields(Settings):
+        v = getattr(settings, f.name)
+        if v is not None:
+            lines.append(f"{f.name} = {_toml_value(v)}")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def settings_from_dict(values: dict) -> Settings:
+    names = {f.name for f in fields(Settings)}
+    values = {k: v for k, v in values.items() if k in names}
+    if isinstance(values.get("siri_model"), str):
+        values["siri_model"] = [values["siri_model"]]
+    return Settings(**values)
+
+
 def make_settings(args: argparse.Namespace) -> Settings:
     names = {f.name for f in fields(Settings)}
     values = {}

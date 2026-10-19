@@ -75,6 +75,18 @@ python -m echoguard --list-engines
 
 ## 3. 使用
 
+### 3.0 圖形介面（不想用命令列的話）
+
+在專案資料夾裡**雙擊 `start_gui.bat`**，會開一個設定視窗（不會跳出黑色命令列視窗）。也可以手動執行 `pythonw -m echoguard.gui`。（`start_gui.bat` 會優先用 2.2 節建立的 `.venv`，沒有的話改用 Python 啟動器 `pyw`。）
+
+- 視窗裡從下拉選單挑麥克風、喇叭和 CABLE Input，選回聲消除引擎，再勾要不要開 Hey Siri 防誤觸，然後按「▶ 開始」。
+- 狀態區會即時顯示麥克風／喇叭／輸出音量條、緩衝和時脈漂移；麥克風太大聲時會提醒。
+- 「量測延遲」會播 4 秒雜訊，並告訴你要不要調延遲。
+- 設定在按「開始」或關閉視窗時自動存到 `%APPDATA%\desk-echo-guard\echoguard.toml`，下次開啟會沿用。這個檔案也可以給命令列的 `--config` 用。
+- 執行中所有設定欄位都會鎖住；要改設定請先按「■ 停止」，改完再按「▶ 開始」。
+
+以下 3.1–3.4 是命令列用法，用 GUI 的話可以跳過。
+
 ### 3.1 列出裝置
 
 ```bat
@@ -254,7 +266,7 @@ LINE 自己的回音處理通常沒有開關，影響不大，但若對方覺得
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -s          # 33 passed, 2 skipped（nlms 沒有降噪，所以跳過那兩組）
+pytest -s          # 34 passed, 2 skipped（nlms 沒有降噪，所以跳過那兩組；GUI 測試需要 tkinter 和螢幕，Linux 可用 xvfb-run）
 ```
 
 ### 6.1 AEC：合成訊號
@@ -362,6 +374,7 @@ echoguard/
   sim.py          模擬裝置後端（測試用，可設各裝置 ppm）
   signals.py / metrics.py   合成測試訊號、ERLE / STOI / 頻譜距離等量測
   cli.py          命令列
+  gui.py          tkinter 設定視窗（start_gui.bat 啟動）
 tests/            pytest（離線 DSP、執行緒整合、CLI）
 experiments/      TTS + openWakeWord 的評估腳本（需網路）
 tools/train_hey_siri/   自訂 hey siri 模型的訓練設定與說明

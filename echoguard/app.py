@@ -49,7 +49,7 @@ class Settings:
     blocksize: int = FRAME            # device block size request (samples)
     siri_guard: bool = False
     call_in: str = "CABLE-A Output"   # where Discord/LINE output arrives
-    siri_mode: str = "detect"         # detect | sibilant | always
+    siri_mode: str = "always"         # always | sibilant | detect (needs siri_model)
     siri_model: list = field(default_factory=list)
     siri_threshold: float = 0.5
     siri_profile: str = "apple"
