@@ -33,3 +33,7 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 | [運作原理](docs/how-it-works.md) | 接線圖、時脈漂移補償、引擎比較、延遲、程式碼結構 |
 | [驗證結果與限制](docs/verification.md) | 量測數據、已知限制、需要實機驗證的項目 |
 | [開發說明](docs/development.md) | 測試、評估腳本、打包 exe 與發佈版本 |
+
+## 授權
+
+本專案以 [MIT 授權](LICENSE)釋出。exe 內含的第三方套件（numpy、scipy、livekit、pyaec / SpeexDSP、soundcard、openWakeWord、onnxruntime 等）各自依其原本的授權使用，授權檔隨各套件一起包在 exe 裡。VB-Cable 是 VB-Audio 的軟體，需要另外安裝，不包含在本專案內。
