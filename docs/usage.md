@@ -10,7 +10,7 @@
 
 1. 選裝置：
    - 實體麥克風、喇叭（回聲參考）：預設用 Windows 的預設裝置，通常不用改。
-   - 虛擬音效線：自動找到 VB-Cable，這一行會告訴你 Discord / LINE 的麥克風要選哪個。建議按「改成好懂的名稱…」，見[讓 VB-Cable 的名稱好懂一點](setup.md#讓-vb-cable-的名稱好懂一點建議)。
+   - 虛擬音效線：自動找到 VB-Cable，這一行會告訴你 Discord / LINE 的麥克風要選哪個。建議按「整理 VB-Cable 裝置…」，見[讓 VB-Cable 的名稱好懂一點](setup.md#讓-vb-cable-的名稱好懂一點建議)。
    - 想自己指定 VB-Cable 裝置（例如裝了其他虛擬音效線），勾「顯示進階裝置選項」。
 2. 選回聲消除引擎，通常用 WebRTC。三種引擎的差別見[引擎比較](how-it-works.md#引擎比較)。
 3. 要防 Hey Siri 誤觸的話勾「啟用」，並選模式和陷波強度，見 [Hey Siri 防誤觸](siri-guard.md#怎麼選)。

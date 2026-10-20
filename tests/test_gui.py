@@ -158,3 +158,8 @@ def test_cable_status_follows_device_names(root, tmp_path):
     assert "「回聲消除麥克風」" in gui.v_cable.get()
     assert not gui.btn_cable.winfo_manager()  # nothing left to rename
     assert "「Siri防護喇叭」" in gui.chk_siri["text"]
+
+    be.output_ppm["CABLE In 16ch (VB-Audio Virtual Cable)"] = 0.0
+    gui.refresh_devices()
+    assert gui.btn_cable.winfo_manager() and gui.btn_cable["text"] == "停用用不到的裝置…"
+    assert "1 個用不到" in gui.v_cable.get()

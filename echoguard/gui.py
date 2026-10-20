@@ -218,7 +218,7 @@ class EchoGuardGUI:
         self.cb_call = self._combo(self.adv, 1, "通話聲音來源（Siri）", self.v_call_in)
         ttk.Label(self.adv, text="通常不用改：VB-Cable 會自動找到，改過名稱也找得到",
                   foreground="#666").grid(row=2, column=1, sticky="w")
-        self.btn_restore = ttk.Button(self.adv, text="還原 VB-Cable 原本名稱",
+        self.btn_restore = ttk.Button(self.adv, text="還原 VB-Cable（原本名稱、重新啟用）",
                                       command=lambda: self._rename_cable(restore=True))
         self.btn_restore.grid(row=3, column=1, sticky="w", **pad)
         self._update_adv()
@@ -347,9 +347,12 @@ class EchoGuardGUI:
             text = f"✔ 已找到。Discord / LINE 的麥克風請選「{mic}」"
             if not c["renamed"]:
                 text += "\n（可以按右邊按鈕把 VB-Cable 改成好懂的名稱）"
+            elif c["unused"]:
+                text += f"\n（還有 {len(c['unused'])} 個用不到的 VB-Cable 裝置，可以停用）"
             self.v_cable.set(text)
-            self.btn_cable.configure(text="改成好懂的名稱…")
-            if c["renamed"]:
+            self.btn_cable.configure(text="整理 VB-Cable 裝置…" if not c["renamed"]
+                                     else "停用用不到的裝置…")
+            if c["renamed"] and not c["unused"]:
                 self.btn_cable.grid_remove()
             else:
                 self.btn_cable.grid()
@@ -358,7 +361,7 @@ class EchoGuardGUI:
             self.btn_cable.configure(state="normal" if on_win else "disabled")
         else:
             self.btn_cable.configure(state="normal")
-        self.btn_restore.configure(state="normal" if on_win and c["renamed"] else "disabled")
+        self.btn_restore.configure(state="normal" if on_win and c["found"] else "disabled")
         if c["names"]["call_speaker"]:
             siri = f"啟用（Discord / LINE 的輸出裝置要改成「{spk}」）"
         else:
@@ -374,22 +377,40 @@ class EchoGuardGUI:
     def _rename_cable(self, restore: bool):
         if self.busy or self.app is not None or not winutil.IS_WIN:
             return
+        tail = ("\n\nWindows 會跳出確認視窗，請按「是」。"
+                "\n改完後請重新開啟 Discord / LINE，再選一次麥克風。")
         if restore:
-            msg = "要把 VB-Cable 的裝置名稱還原成 VB-Audio 原本的名稱嗎？"
+            if not messagebox.askyesno(
+                    "Desk Echo Guard", "要把 VB-Cable 的裝置名稱還原成 VB-Audio 原本的名稱，"
+                    "並重新啟用停用的 VB-Cable 裝置嗎？" + tail):
+                return
+            actions = ["restore"]
         else:
-            lines = "\n".join(f"  {r.original} → {r.renamed}" for r in vcable.ROLES)
-            msg = ("要把 VB-Cable 的裝置改成好懂的名稱嗎？\n\n" + lines +
-                   "\n\nWindows 會跳出確認視窗，請按「是」。"
-                   "\n改完後請重新開啟 Discord / LINE，再選一次麥克風。")
-        if not messagebox.askyesno("Desk Echo Guard", msg):
-            return
+            actions = []
+            if not self.cable["renamed"]:
+                lines = "\n".join(f"  {r.original} → {r.renamed}" for r in vcable.ROLES)
+                if messagebox.askyesno("Desk Echo Guard",
+                                       "要把 VB-Cable 的裝置改成好懂的名稱嗎？\n\n" + lines):
+                    actions.append("rename")
+            unused = self.cable["unused"]
+            if unused:
+                lines = "\n".join(f"  {n}" for n in unused)
+                if messagebox.askyesno(
+                        "Desk Echo Guard",
+                        "下面這些 VB-Cable 裝置本程式用不到，要停用嗎？\n停用後 Discord / LINE "
+                        "的清單裡就不會出現。\n\n" + lines +
+                        "\n\n如果其他軟體（例如 OBS）有用到，請按「否」。"
+                        "\n之後可以在「顯示進階裝置選項」→「還原 VB-Cable」重新啟用。"):
+                    actions.append("hide")
+            if not actions:
+                return
         self.busy = True
         self._update_cable_ui()
-        self.log("正在變更 VB-Cable 裝置名稱，請在 Windows 確認視窗按「是」…")
+        self.log("正在整理 VB-Cable 裝置，請在 Windows 確認視窗按「是」…")
 
         def work():
             try:
-                res = vcable.run_elevated("restore" if restore else "rename")
+                res = vcable.run_elevated(",".join(actions))
             except Exception as e:
                 res = (False, f"{type(e).__name__}: {e}")
             self.logq.put(("vcable", res))
@@ -635,10 +656,10 @@ class EchoGuardGUI:
                     if kind == "vcable":
                         ok, msg = then
                         if ok:
-                            self.log(f"已變更裝置名稱：{msg}")
+                            self.log(f"已整理 VB-Cable 裝置：{msg}")
                             self.log("請重新開啟 Discord / LINE，再選一次麥克風。")
                         else:
-                            self.log(f"變更裝置名稱失敗：{msg}")
+                            self.log(f"整理 VB-Cable 裝置失敗：{msg}")
                         self.refresh_devices()
                         # Windows can take a moment to publish the new names
                         self.root.after(1500, self.refresh_devices)

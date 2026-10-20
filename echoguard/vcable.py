@@ -5,12 +5,15 @@ VB-Cable's own names ("CABLE Input" is a speaker, "CABLE Output" is a mic)
 are confusing in Discord / LINE device lists.  Windows lets an administrator
 rename an endpoint (Sound control panel -> Properties); that changes the
 endpoint's PKEY_Device_DeviceDesc, so the name everyone sees becomes
-"<new name> (VB-Audio Virtual Cable)".  :func:`rename_endpoints` does the
-same through the Core Audio property store and must run elevated, so the GUI
-starts this module as a separate process via UAC (:func:`run_elevated`):
+"<new name> (VB-Audio Virtual Cable)".  VB-Cable endpoints this program
+does not use (CABLE In 16ch, CABLE-B ...) can also be disabled, as the Sound
+control panel's "Disable" does, so they drop out of every device list.
 
-    python -m echoguard.vcable rename  RESULT.json
-    python -m echoguard.vcable restore RESULT.json
+Both need administrator rights, so the GUI starts this module as a separate
+process via UAC (:func:`run_elevated`) with comma-separated actions:
+
+    python -m echoguard.vcable rename,hide RESULT.json
+    python -m echoguard.vcable restore     RESULT.json   (names back + re-enable)
 """
 
 from __future__ import annotations
@@ -76,14 +79,20 @@ def resolve(name: str | None, kind: str, devices) -> str | None:
     return find(devices, r) or name
 
 
+def is_vbcable(name: str) -> bool:
+    return "vb-audio" in name.lower()
+
+
 def status(devices) -> dict:
     """{"found": VB-Cable present, "renamed": every present role renamed,
-    "names": {role key: current device name}}"""
+    "names": {role key: current device name},
+    "unused": enabled VB-Cable devices this program has no use for}"""
     names = {r.key: find(devices, r) for r in ROLES}
     present = [r for r in ROLES if names[r.key]]
     renamed = bool(present) and all(_desc_is(names[r.key], r.renamed) for r in present)
+    unused = [d.name for d in devices if is_vbcable(d.name) and role_of(d.name, d.kind) is None]
     return {"found": names["out"] is not None and names["virtual_mic"] is not None,
-            "renamed": renamed, "names": names}
+            "renamed": renamed, "names": names, "unused": unused}
 
 
 def display_name(devices, key: str) -> str:
@@ -99,6 +108,11 @@ _IID_IMMDeviceEnumerator = "{A95664D2-9614-4F35-A746-DE8DB63617E6}"
 _PKEY_FMTID = "{A45C254E-DF1C-4EFD-8020-67D146A850E0}"
 _PID_DEVICE_DESC, _PID_FRIENDLY_NAME = 2, 14
 _VT_LPWSTR = 31
+# IPolicyConfig is undocumented but stable since Windows 7; it is what the
+# Sound control panel uses to disable / enable an endpoint
+_CLSID_PolicyConfigClient = "{870AF99C-171D-4F9E-AF0D-E63DF40C2BC9}"
+_IID_IPolicyConfig = "{F8679F50-850A-41CF-9C72-430F290290C8}"
+STATE_ACTIVE, STATE_DISABLED = 1, 2
 
 
 def _com():
@@ -137,7 +151,8 @@ def _com():
 
 
 def list_endpoints() -> list[dict]:
-    """Active render + capture endpoints: id, kind, desc, friendly name."""
+    """Active and disabled render + capture endpoints: id, kind, state,
+    desc, friendly name."""
     ctypes, wintypes, ole32, _, PROPERTYKEY, PROPVARIANT, guid, call = _com()
     ole32.CoInitializeEx(None, 0)
     enum = ctypes.c_void_p()
@@ -148,8 +163,8 @@ def list_endpoints() -> list[dict]:
         raise OSError(f"CoCreateInstance(MMDeviceEnumerator) failed 0x{hr & 0xFFFFFFFF:08X}")
     P = ctypes.c_void_p
     coll = P()
-    # IMMDeviceEnumerator::EnumAudioEndpoints(eAll, DEVICE_STATE_ACTIVE)
-    call(enum, 3, 2, 1, ctypes.byref(coll),
+    # IMMDeviceEnumerator::EnumAudioEndpoints(eAll, ACTIVE | DISABLED)
+    call(enum, 3, 2, STATE_ACTIVE | STATE_DISABLED, ctypes.byref(coll),
          argtypes=(ctypes.c_int, wintypes.DWORD, ctypes.POINTER(P)))
     count = wintypes.UINT()
     call(coll, 3, ctypes.byref(count), argtypes=(ctypes.POINTER(wintypes.UINT),))
@@ -161,6 +176,8 @@ def list_endpoints() -> list[dict]:
         call(dev, 5, ctypes.byref(pid), argtypes=(ctypes.POINTER(ctypes.c_wchar_p),))
         dev_id = pid.value
         ole32.CoTaskMemFree(pid)
+        state = wintypes.DWORD()
+        call(dev, 6, ctypes.byref(state), argtypes=(ctypes.POINTER(wintypes.DWORD),))
         store = P()
         call(dev, 4, 0, ctypes.byref(store),  # OpenPropertyStore(STGM_READ)
              argtypes=(wintypes.DWORD, ctypes.POINTER(P)))
@@ -176,7 +193,8 @@ def list_endpoints() -> list[dict]:
         call(dev, 2)
         # endpoint ids: "{0.0.0.00000000}.{guid}" render, "{0.0.1.00000000}.{guid}" capture
         kind = "mic" if dev_id.startswith("{0.0.1.") else "speaker"
-        out.append({"id": dev_id, "kind": kind, "desc": props[_PID_DEVICE_DESC],
+        out.append({"id": dev_id, "kind": kind, "state": state.value,
+                    "desc": props[_PID_DEVICE_DESC],
                     "name": props[_PID_FRIENDLY_NAME]})
     call(coll, 2)
     call(enum, 2)
@@ -212,11 +230,26 @@ def set_description(dev_id: str, desc: str) -> None:
                 call(o, 2)
 
 
+def set_enabled(dev_id: str, enabled: bool) -> None:
+    """Enable / disable one endpoint (needs administrator rights)."""
+    ctypes, _, ole32, _, _, _, guid, call = _com()
+    ole32.CoInitializeEx(None, 0)
+    pc = ctypes.c_void_p()
+    hr = ole32.CoCreateInstance(ctypes.byref(guid(_CLSID_PolicyConfigClient)), None, 1,
+                                ctypes.byref(guid(_IID_IPolicyConfig)), ctypes.byref(pc))
+    if hr:
+        raise OSError(f"CoCreateInstance(PolicyConfig) failed 0x{hr & 0xFFFFFFFF:08X}")
+    try:  # IPolicyConfig::SetEndpointVisibility
+        call(pc, 14, dev_id, int(enabled), argtypes=(ctypes.c_wchar_p, ctypes.c_int))
+    finally:
+        call(pc, 2)
+
+
 def plan(endpoints, restore: bool = False) -> list[tuple[dict, str]]:
     """(endpoint, new description) for every VB-Cable endpoint to change."""
     todo = []
     for ep in endpoints:
-        if "vb-audio" not in ep["name"].lower():
+        if not is_vbcable(ep["name"]):
             continue  # never touch anything that is not VB-Cable
         for r in ROLES:
             src, dst = (r.renamed, r.original) if restore else (r.original, r.renamed)
@@ -225,17 +258,41 @@ def plan(endpoints, restore: bool = False) -> list[tuple[dict, str]]:
     return todo
 
 
-def rename_endpoints(restore: bool = False) -> list[str]:
+def plan_visibility(endpoints, show: bool = False) -> list[dict]:
+    """VB-Cable endpoints without a role to disable (or, with show, to
+    enable again).  The ones this program uses are never disabled."""
+    want = STATE_DISABLED if show else STATE_ACTIVE
+    return [ep for ep in endpoints
+            if is_vbcable(ep["name"]) and ep.get("state", STATE_ACTIVE) == want
+            and role_of(ep["desc"], ep["kind"]) is None]
+
+
+ACTIONS = ("rename", "hide", "restore")
+
+
+def apply(actions) -> list[str]:
+    """Run rename / hide / restore (= names back + enable again) in order."""
     done = []
-    for ep, new in plan(list_endpoints(), restore):
-        set_description(ep["id"], new)
-        done.append(f"{ep['desc']} -> {new}")
+    for action in actions:
+        if action not in ACTIONS:
+            raise ValueError(f"unknown action {action!r}")
+        eps = list_endpoints()
+        if action in ("rename", "restore"):
+            for ep, new in plan(eps, restore=action == "restore"):
+                set_description(ep["id"], new)
+                done.append(f"{ep['desc']} → {new}")
+        if action in ("hide", "restore"):
+            show = action == "restore"
+            for ep in plan_visibility(eps, show=show):
+                set_enabled(ep["id"], show)
+                done.append(f"{'啟用' if show else '停用'} {ep['desc']}")
     return done
 
 
+
 def run_elevated(action: str, timeout_s: float = 120.0) -> tuple[bool, str]:
-    """Run `rename` / `restore` in an elevated copy of this program (UAC
-    prompt) and wait for it.  Returns (ok, message)."""
+    """Run actions ("rename,hide", "restore", ...) in an elevated copy of
+    this program (UAC prompt) and wait for it.  Returns (ok, message)."""
     import ctypes
     import tempfile
     from ctypes import wintypes
@@ -289,14 +346,15 @@ def run_elevated(action: str, timeout_s: float = 120.0) -> tuple[bool, str]:
 
 
 def main(argv=None) -> int:
-    """Elevated entry: `rename|restore RESULT.json`."""
+    """Elevated entry: `rename,hide|restore RESULT.json`."""
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 2 or argv[0] not in ("rename", "restore"):
-        print("usage: python -m echoguard.vcable rename|restore RESULT.json")
+    actions = argv[0].split(",") if argv else []
+    if len(argv) != 2 or not actions or any(a not in ACTIONS for a in actions):
+        print("usage: python -m echoguard.vcable rename[,hide]|hide|restore RESULT.json")
         return 2
-    action, result = argv
+    result = argv[1]
     try:
-        r = {"done": rename_endpoints(restore=action == "restore")}
+        r = {"done": apply(actions)}
     except Exception as e:
         r = {"error": f"{type(e).__name__}: {e}"}
     with open(result, "w", encoding="utf-8") as f:

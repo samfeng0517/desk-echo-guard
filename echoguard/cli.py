@@ -35,9 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
                                     "with - or _)")
     p.add_argument("--list-devices", action="store_true", help="list audio devices and exit")
     p.add_argument("--list-engines", action="store_true", help="list available AEC engines")
-    p.add_argument("--rename-vbcable", choices=["rename", "restore"],
-                   help="give the VB-Cable devices descriptive names (or restore VB-Audio's); "
-                        "run from an administrator prompt")
+    p.add_argument("--rename-vbcable", choices=["rename", "hide", "restore"],
+                   help="rename: give the VB-Cable devices descriptive names; hide: disable "
+                        "the VB-Cable devices this program does not use; restore: undo both. "
+                        "Run from an administrator prompt")
     p.add_argument("--calibrate", action="store_true",
                    help="play noise bursts, measure speaker->mic delay, print a --delay-ms hint")
 
@@ -215,8 +216,8 @@ def main(argv=None) -> int:
         return 0
 
     if args.rename_vbcable:
-        from .vcable import rename_endpoints
-        for line in rename_endpoints(restore=args.rename_vbcable == "restore") or ["nothing to change"]:
+        from .vcable import apply
+        for line in apply([args.rename_vbcable]) or ["nothing to change"]:
             print(line)
         return 0
 

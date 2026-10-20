@@ -13,7 +13,9 @@
 
 ### 讓 VB-Cable 的名稱好懂一點（建議）
 
-VB-Cable 的名稱很容易搞混：「CABLE Input」其實是喇叭，「CABLE Output」才是麥克風。程式開啟後，「裝置」區會顯示有沒有找到 VB-Cable。按右邊的「**改成好懂的名稱…**」，再在 Windows 的確認視窗按「是」，就會改成下面的名稱：
+VB-Cable 的名稱很容易搞混：「CABLE Input」其實是喇叭，「CABLE Output」才是麥克風。程式開啟後，「裝置」區會顯示有沒有找到 VB-Cable。按右邊的「**整理 VB-Cable 裝置…**」，程式會問你兩件事（可以只做其中一件），再在 Windows 的確認視窗按「是」：
+
+1. **改成好懂的名稱**：
 
 | VB-Cable 原本的名稱 | 改名後 | 用途 |
 |---|---|---|
@@ -25,8 +27,14 @@ VB-Cable 的名稱很容易搞混：「CABLE Input」其實是喇叭，「CABLE 
 - 括號裡的驅動名稱（例如 `(VB-Audio Virtual Cable)`）改不掉，會留著。
 - 改完要**重新開啟 Discord / LINE** 才會看到新名稱，然後再選一次麥克風。
 - 這等於在「控制台 → 聲音 → 裝置內容」手動改名，只改顯示的名稱，不影響驅動。改名前後程式都找得到裝置，不用改任何設定。
-- 想改回原本的名稱：勾「顯示進階裝置選項」→「還原 VB-Cable 原本名稱」。命令列可以在系統管理員命令提示字元執行 `python -m echoguard --rename-vbcable rename`（或 `restore`）。
-- 用不到的 `CABLE In 16ch`、`CABLE-B` 不會被改名。
+- 想全部改回來（原本名稱＋重新啟用）：勾「顯示進階裝置選項」→「還原 VB-Cable（原本名稱、重新啟用）」。
+
+2. **停用用不到的 VB-Cable 裝置**：例如 `CABLE In 16ch`、`CABLE-B Input`、`CABLE-B Output`。停用後 Discord / LINE 的清單裡就看不到它們，和在「控制台 → 聲音」對裝置按右鍵 →「停用」一樣。
+   - 本程式會用到的四個裝置不會被停用。
+   - 其他軟體（例如 OBS）有用到 CABLE-B 的話，這一項請按「否」。
+   - 還原按鈕會重新啟用所有被停用的 VB-Cable 裝置。
+
+命令列：在系統管理員命令提示字元執行 `python -m echoguard --rename-vbcable rename`、`hide`（停用用不到的）或 `restore`（全部還原）。
 
 下面的說明以原本的名稱為主；改過名的話，`CABLE Output` 就是「回聲消除麥克風」，`CABLE-A Input` 就是「Siri防護喇叭」。
 

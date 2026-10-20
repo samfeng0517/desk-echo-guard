@@ -74,3 +74,27 @@ def test_app_finds_renamed_cable_with_default_settings():
     app.run(duration_s=0.5)
     assert len(be.opened_outputs[sink].data()) > 0
     assert np.isfinite(be.opened_outputs[sink].data()).all()
+
+
+def test_status_lists_unused_vbcable_devices():
+    assert vcable.status(ORIGINAL)["unused"] == ["CABLE In 16ch (VB-Audio Virtual Cable)"]
+    assert vcable.status(RENAMED)["unused"] == ["CABLE In 16ch (VB-Audio Virtual Cable)"]
+    assert vcable.status(RENAMED[:1] + RENAMED[2:])["unused"] == []
+
+
+def test_plan_visibility_never_disables_used_endpoints():
+    def ep(i, kind, desc, iface, state=vcable.STATE_ACTIVE):
+        return {"id": i, "kind": kind, "desc": desc, "name": f"{desc} ({iface})", "state": state}
+    eps = [ep("a", "speaker", "CABLE Input", "VB-Audio Virtual Cable"),
+           ep("b", "speaker", "CABLE In 16ch", "VB-Audio Virtual Cable"),
+           ep("c", "mic", "回聲消除麥克風", "VB-Audio Virtual Cable"),
+           ep("d", "speaker", "CABLE-B Input", "VB-Audio Cable B"),
+           ep("e", "mic", "CABLE-B Output", "VB-Audio Cable B", vcable.STATE_DISABLED),
+           ep("f", "speaker", "Speakers", "Realtek(R) Audio")]
+    assert [e["id"] for e in vcable.plan_visibility(eps)] == ["b", "d"]
+    assert [e["id"] for e in vcable.plan_visibility(eps, show=True)] == ["e"]
+
+
+def test_elevated_entry_rejects_unknown_actions(tmp_path):
+    assert vcable.main(["rename,format-disk", str(tmp_path / "r.json")]) == 2
+    assert vcable.main(["rename"]) == 2
