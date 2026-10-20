@@ -1,0 +1,59 @@
+name: Rust (rewrite)
+
+# manual only until the rewrite builds end to end; then add push / pull_request
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo clippy --workspace --all-targets --release -- -D warnings
+      - run: cargo test --workspace --release
+      - run: cargo build --release -p desk-echo-guard
+      - name: Self-test the exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target\release\DeskEchoGuard.exe -ArgumentList '--self-test','selftest.txt' -Wait -PassThru
+          if (Test-Path selftest.txt) { Get-Content selftest.txt }
+          if ($p.ExitCode -ne 0) { throw "self-test failed ($($p.ExitCode))" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskEchoGuard-rust-windows
+          path: |
+            rust/target/release/DeskEchoGuard.exe
+            rust/target/release/*.dll
+            rust/selftest.txt
+
+  linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: clang 21 (libwebrtc's prebuilt archive needs it)
+        working-directory: .
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-21 libfontconfig1-dev libxkbcommon-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo test --workspace --release
