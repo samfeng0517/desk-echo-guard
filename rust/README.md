@@ -63,7 +63,7 @@ cargo test --workspace --release
 | [Slint](https://slint.dev/) | 圖形介面 | [Slint Royalty-free Desktop, Mobile, and Web Applications License](https://github.com/slint-ui/slint/blob/master/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md)。本程式介面以 Slint 製作（Made with [Slint](https://slint.dev/)），「進階 → 關於」中附有 Slint 標示。 |
 | [WebRTC](https://webrtc.org/)（經由 LiveKit `libwebrtc`） | 回聲消除、降噪 | BSD 3-Clause（WebRTC）；LiveKit Rust SDK 為 Apache-2.0 |
 | [SpeexDSP](https://www.speex.org/) | 回聲消除（Speex 引擎） | BSD 3-Clause（Xiph.Org） |
-| [ONNX Runtime](https://onnxruntime.ai/) | Hey Siri 喚醒詞偵測（detect 模式） | MIT |
+| [openWakeWord](https://github.com/dscripka/openWakeWord) 特徵模型（執行時下載） | Hey Siri 喚醒詞偵測（detect 模式），用程式內建的推論器執行 | Apache-2.0 |
 | [openWakeWord](https://github.com/dscripka/openWakeWord) | 喚醒詞偵測流程與特徵模型 | Apache-2.0（程式碼） |
 
 [VB-Cable](https://vb-audio.com/Cable/) 是 VB-Audio 的軟體（VB-CABLE 免費、VB-CABLE A+B 為捐款軟體），需要另外安裝，不包含在本專案內。

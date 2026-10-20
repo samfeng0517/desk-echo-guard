@@ -1,7 +1,7 @@
 //! All GUI state <-> engine glue: settings auto-save, auto-apply (debounced
 //! restart), status polling, InfoBars, VB-Cable, calibration, tray, close
-//! to tray.  The engine is only reached through [`Engine`]; swapping the
-//! mock for echoguard-core is a change in `ui::run_gui` only.
+//! to tray.  The engine is only reached through [`Engine`] (echoguard-core
+//! or the mock, chosen in `ui::make_engine`).
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -88,6 +88,8 @@ struct State {
     loud_until: Option<Instant>,
     pipeline_error: Option<String>,
     start_error: Option<String>,
+    /// the device list cannot be read (no audio system)
+    device_error: Option<String>,
     autostart_failed: bool,
     autostart_error: Option<String>,
     cable_result: Option<(bool, String)>,
@@ -579,9 +581,21 @@ impl Controller {
 
     pub fn refresh_devices(&self) {
         let devices = match self.engine.devices() {
-            Ok(d) => d,
+            Ok(d) => {
+                if self.st.borrow_mut().device_error.take().is_some() {
+                    self.refresh_bars();
+                }
+                d
+            }
             Err(e) => {
-                self.log(format!("無法列出音效裝置：{e:#}"));
+                let e = format!("{e:#}");
+                let changed = self.st.borrow().device_error.as_deref() != Some(e.as_str());
+                if changed {
+                    // log once, not on every refresh
+                    self.log(format!("無法列出音效裝置：{e}"));
+                    self.st.borrow_mut().device_error = Some(e);
+                    self.refresh_bars();
+                }
                 return;
             }
         };
@@ -1051,7 +1065,22 @@ impl Controller {
                 "檢查裝置有接好後，按這裡再開始一次。",
             ));
         }
-        if !st.cable.found {
+        if let Some(err) = &st.device_error {
+            let b = bar(
+                Severity::Error,
+                "無法讀取音效裝置",
+                &format!(
+                    "Windows 的音效系統目前無法使用，所以沒辦法消除回音。（{}）",
+                    short(err)
+                ),
+                "開啟音效設定",
+                "open-sound-settings",
+                "開啟 Windows 的音效設定，確認喇叭和麥克風都有出現。",
+            );
+            home.push(b.clone());
+            devices.push(b);
+        } else if !st.cable.found {
+            // (unknown while the device list cannot be read)
             home.push(no_cable.clone());
             devices.push(no_cable);
         }
@@ -1532,7 +1561,9 @@ fn short(msg: &str) -> String {
 
 fn friendly_start_error(err: &str) -> String {
     let e = err.to_lowercase();
-    if e.contains("cable") {
+    if e.contains("no audio backend") {
+        "這台電腦的音效系統無法使用（需要 Windows 10 / 11）。".into()
+    } else if e.contains("cable") {
         "找不到 VB-Cable。請確認已安裝 VB-Cable 並重新開機過。".into()
     } else if e.contains("siri-model") || e.contains("模型") {
         "「偵測到 Hey Siri 才處理」需要模型檔，請到「Hey Siri 防誤觸」頁選擇。".into()

@@ -15,7 +15,7 @@ tests too (same scenarios, same pass thresholds).
 |---|---|---|
 | `echoguard-dsp` | `buffers.py` `resample.py` `delay.py` `siri_guard.py` (DSP parts) `aec.py` (NLMS) `signals.py` `metrics.py` | pure Rust, no OS deps, everything testable on Linux |
 | `echoguard-aec` | `aec.py` | `EchoCanceller` trait, engines webrtc / speex / nlms / off, `AecProcessor` |
-| `echoguard-wakeword` | `siri_guard.OpenWakeWordDetector` | openWakeWord pipeline on ONNX Runtime (`ort`) |
+| `echoguard-wakeword` | `siri_guard.OpenWakeWordDetector` | openWakeWord pipeline on a small built-in pure-Rust ONNX interpreter (float32 DNN models; no ONNX Runtime) |
 | `echoguard-audio` | `io_backend.py` `sim.py` | device traits, WASAPI backend (Windows), simulated backend |
 | `echoguard-core` | `app.py` `cli.py` (settings) `vcable.py` `winutil.py` `selftest.py` | settings / TOML, real-time pipeline, calibration, VB-Cable, autostart, self-test |
 | `desk-echo-guard` (crates/app) | `gui.py` `tray.py` `cli.py` | the exe: GUI (Slint, Fluent style), tray, CLI |
@@ -144,6 +144,8 @@ impl AecProcessor {
   Feature `speex` (default on).
 
 ### echoguard-wakeword
+
+Inference runs on the crate's own ONNX interpreter (`onnx.rs` parser, `nn.rs` ops, `gemm.rs` AVX2/portable kernel): ~0.3 MB instead of ONNX Runtime's ~24 MB + DirectML / VC++ DLLs.  Unsupported ops (e.g. LSTM heads) fail at load time with the op name.
 
 ```rust
 pub struct OpenWakeWordDetector;   // impl echoguard_dsp::Detector

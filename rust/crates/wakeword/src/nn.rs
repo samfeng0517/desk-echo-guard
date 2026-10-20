@@ -1552,4 +1552,53 @@ mod tests {
             }
         }
     }
+
+    /// Operators newer exporters emit, against ONNX Runtime
+    /// (tests/fixtures/gen_ops_model.py).
+    #[test]
+    fn synthetic_model_matches_onnxruntime() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let mut m = Model::load(&dir.join("ops_model.onnx")).unwrap();
+        assert_eq!(m.input_dims(), [1, 16, 96]);
+        let text = std::fs::read_to_string(dir.join("ops_model_ref.txt")).unwrap();
+        let mut lines = text.lines();
+        let shape: Vec<usize> = lines
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .map(|v| v.parse().unwrap())
+            .collect();
+        let want: Vec<f32> = lines
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .map(|v| v.parse().unwrap())
+            .collect();
+        let x: Vec<f32> = (0..16 * 96)
+            .map(|i| (0.37 * i as f64).sin() as f32)
+            .collect();
+        let y = m.run(t(&[1, 16, 96], &x)).unwrap();
+        assert_eq!(y.shape, shape);
+        for (g, w) in y.as_f32().unwrap().iter().zip(&want) {
+            assert!((g - w).abs() < 1e-5, "{g} vs {w}");
+        }
+    }
+
+    #[test]
+    fn unsupported_op_is_reported_at_load() {
+        // ModelProto { graph { node { input "x" output "y" op_type "LSTM" }
+        //   input { name "x" } output { name "y" } } }
+        let node = [
+            &[0x0a, 0x01, b'x', 0x12, 0x01, b'y', 0x22, 0x04][..],
+            b"LSTM",
+        ]
+        .concat();
+        let mut g = vec![0x0a, node.len() as u8];
+        g.extend(&node);
+        g.extend([0x5a, 0x03, 0x0a, 0x01, b'x', 0x62, 0x03, 0x0a, 0x01, b'y']);
+        let mut m = vec![0x3a, g.len() as u8];
+        m.extend(&g);
+        let e = Model::from_bytes(&m).unwrap_err();
+        assert!(e.to_string().contains("LSTM"), "{e}");
+    }
 }
