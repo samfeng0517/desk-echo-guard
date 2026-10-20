@@ -245,7 +245,7 @@ export component AdvancedPage inherits Page {
                     maximum: 20;
                     step: 1;
                     value <=> Cfg.gain-db;
-                    released => {
+                    changed(v) => {
                         Cfg.changed();
                     }
                 }

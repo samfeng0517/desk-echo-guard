@@ -63,7 +63,6 @@ fn kernel<const FMA: bool>(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: us
 /// A constant left operand (`m x k`), rows zero-padded to a multiple of MR.
 #[derive(Clone, Debug)]
 pub struct PackedA {
-    pub m: usize,
     pub k: usize,
     pub mp: usize,
     pub data: Vec<f32>,
@@ -74,7 +73,7 @@ impl PackedA {
         let mp = round_up(m.max(1), MR);
         let mut data = vec![0.0; mp * k];
         data[..m * k].copy_from_slice(&a[..m * k]);
-        Self { m, k, mp, data }
+        Self { k, mp, data }
     }
 }
 
@@ -125,24 +124,6 @@ pub struct Scratch {
 }
 
 impl Scratch {
-    /// Zeroed padded-A buffer of `n` values.
-    pub fn a(&mut self, n: usize) -> &mut [f32] {
-        zeroed(&mut self.a, n)
-    }
-
-    /// Zeroed padded-B (im2col) buffer of `n` values.
-    pub fn b(&mut self, n: usize) -> &mut [f32] {
-        zeroed(&mut self.b, n)
-    }
-
-    /// Result buffer of `n` values (contents unspecified).
-    pub fn c(&mut self, n: usize) -> &mut [f32] {
-        if self.c.len() < n {
-            self.c.resize(n, 0.0);
-        }
-        &mut self.c[..n]
-    }
-
     /// `(b, c)` at once, for callers that fill B then multiply into C.
     pub fn b_and_c(&mut self, nb: usize, nc: usize) -> (&mut [f32], &mut [f32]) {
         zeroed(&mut self.b, nb);

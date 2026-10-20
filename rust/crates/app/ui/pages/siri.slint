@@ -222,7 +222,7 @@ export component SiriPage inherits Page {
                         step: 0.05;
                         enabled: Cfg.siri-guard;
                         value <=> Cfg.siri-threshold;
-                        released => {
+                        changed(v) => {
                             Cfg.changed();
                         }
                     }

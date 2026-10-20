@@ -1,5 +1,6 @@
 //! Port of openWakeWord's `Model` + `AudioFeatures` streaming pipeline
-//! (openwakeword 0.6, ONNX framework) on tract (pure-Rust ONNX inference).
+//! (openwakeword 0.6, ONNX framework) on a small built-in pure-Rust ONNX
+//! interpreter (`nn`).
 //!
 //! 16 kHz int16 audio -> melspectrogram.onnx (`x / 10 + 2`) -> 76-frame
 //! windows, step 8 -> embedding_model.onnx (96-dim) -> the last N embedding
@@ -7,10 +8,11 @@
 //! "first 5 predictions are zero" rule follow the Python code exactly.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use tract_onnx::prelude::*;
+
+use crate::nn::Model;
+use crate::onnx::Tensor;
 
 /// Samples per openWakeWord hop (80 ms @ 16 kHz).
 pub const HOP: usize = 1280;
@@ -22,75 +24,37 @@ const MEL_MAX_ROWS: usize = 10 * 97;
 const FEAT_MAX_ROWS: usize = 120;
 const PRED_BUF_LEN: usize = 30;
 
-type Plan = TypedSimplePlan;
-
-/// An optimised tract plan plus its reusable run state (single-threaded,
-/// pure Rust).
+/// One ONNX model on the built-in pure-Rust interpreter (single-threaded).
 pub(crate) struct Session {
-    state: TypedSimpleState,
-    input: TypedFact,
-    output: TypedFact,
+    model: Model,
 }
 
 impl Session {
-    /// Load `path`; `input` overrides the first input's shape (`None`: keep
-    /// the model's own, which must then be fully known).  `"B"`-style
-    /// symbolic dims are resolved per run.
-    fn load(path: &Path, input: Option<&[&str]>) -> Result<Self> {
-        let r = (|| -> TractResult<Self> {
-            let mut model = tract_onnx::onnx().model_for_path(path)?;
-            if let Some(dims) = input {
-                let shape: TVec<TDim> = dims
-                    .iter()
-                    .map(|d| match d.parse::<i64>() {
-                        Ok(v) => TDim::Val(v),
-                        Err(_) => TDim::Sym(model.sym(d)),
-                    })
-                    .collect();
-                model.set_input_fact(0, f32::fact(shape).into())?;
-            }
-            let model = model.into_optimized()?;
-            let input = model.input_fact(0)?.clone();
-            let output = model.output_fact(0)?.clone();
-            let plan: Arc<Plan> = model.into_runnable()?;
-            Ok(Self {
-                state: plan.spawn()?,
-                input,
-                output,
-            })
-        })();
-        r.with_context(|| format!("無法載入 ONNX 模型：{}", path.display()))
+    fn load(path: &Path) -> Result<Self> {
+        Model::load(path)
+            .map(|model| Self { model })
+            .with_context(|| format!("無法載入 ONNX 模型：{}", path.display()))
     }
 
-    /// Input dims with unknown (symbolic) ones as -1.
+    /// Declared input dims (-1 = symbolic).
     fn input_dims(&self) -> Vec<i64> {
-        dims(&self.input)
+        self.model.input_dims().to_vec()
     }
 
     fn output_dims(&self) -> Vec<i64> {
-        dims(&self.output)
+        self.model.output_dims().to_vec()
     }
 
     /// Run on an f32 tensor; the first output is written to `out` (cleared
     /// first).
     fn run_into(&mut self, shape: &[usize], data: &[f32], out: &mut Vec<f32>) -> Result<()> {
-        let input = Tensor::from_shape(shape, data)?;
-        let res = self.state.run(tvec!(input.into_tvalue()))?;
-        let v = res
-            .first()
-            .ok_or_else(|| anyhow!("模型沒有輸出"))?
-            .to_plain_array_view::<f32>()?;
+        let y = self
+            .model
+            .run(Tensor::f32(shape.to_vec(), data.to_vec()))?;
         out.clear();
-        out.extend(v.iter().copied());
+        out.extend_from_slice(y.as_f32()?);
         Ok(())
     }
-}
-
-fn dims(f: &TypedFact) -> Vec<i64> {
-    f.shape
-        .iter()
-        .map(|d| d.to_i64().unwrap_or(-1))
-        .collect()
 }
 
 /// Deterministic stand-in for openWakeWord's random warm-up audio
@@ -147,7 +111,7 @@ impl OwwModel {
         let mut models = Vec::new();
         let mut labels = Vec::new();
         for p in model_paths {
-            let session = Session::load(p, None)?;
+            let session = Session::load(p)?;
             let (din, dout) = (session.input_dims(), session.output_dims());
             if din.len() != 3 || din[1] <= 0 || din[2] != EMB_DIM as i64 {
                 bail!(
@@ -179,8 +143,8 @@ impl OwwModel {
             });
         }
         let mut me = Self {
-            mel: Session::load(melspec, Some(&["1", "S"]))?,
-            emb: Session::load(embedding, Some(&["B", "76", "32", "1"]))?,
+            mel: Session::load(melspec)?,
+            emb: Session::load(embedding)?,
             models,
             raw: Vec::with_capacity(2 * RAW_MAX),
             remainder: Vec::new(),

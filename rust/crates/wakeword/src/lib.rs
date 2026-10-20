@@ -1,7 +1,10 @@
-//! openWakeWord detector on tract, a pure-Rust ONNX runtime
-//! (`siri_guard.OpenWakeWordDetector`); see `DESIGN.md` (echoguard-wakeword).
+//! openWakeWord detector (`siri_guard.OpenWakeWordDetector`) on a small
+//! built-in pure-Rust ONNX interpreter; see `DESIGN.md` (echoguard-wakeword).
 
+mod gemm;
 mod models;
+mod nn;
+mod onnx;
 mod oww;
 
 use std::path::PathBuf;
