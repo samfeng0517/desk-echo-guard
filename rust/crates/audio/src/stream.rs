@@ -209,7 +209,9 @@ pub fn bytes_to_mono(bytes: &[u8], channels: usize, silent: bool, out: &mut Vec<
     let scale = 1.0 / channels as f32;
     out.extend(bytes.chunks_exact(frame_bytes).map(|frame| {
         let sum: f32 = frame
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|s| f32::from_le_bytes([s[0], s[1], s[2], s[3]]))
             .sum();
         sum * scale

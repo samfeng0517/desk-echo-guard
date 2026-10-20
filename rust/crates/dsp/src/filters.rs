@@ -50,7 +50,9 @@ impl Sos {
     pub fn new(flat: &[f64]) -> Self {
         assert_eq!(flat.len() % 6, 0, "sos rows have 6 values");
         let sos: Vec<[f64; 6]> = flat
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .map(|c| {
                 let a0 = c[3];
                 [c[0] / a0, c[1] / a0, c[2] / a0, 1.0, c[4] / a0, c[5] / a0]

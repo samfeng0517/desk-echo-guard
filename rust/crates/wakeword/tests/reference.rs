@@ -56,7 +56,9 @@ fn fixture(name: &str) -> PathBuf {
 fn clip() -> Vec<i16> {
     std::fs::read(fixture("clip16k.i16"))
         .expect("fixture")
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|b| i16::from_le_bytes([b[0], b[1]]))
         .collect()
 }
@@ -152,7 +154,7 @@ fn detector_matches_python() {
     .expect("detector");
     let mut hops = Vec::new();
     let mut regions = Vec::new();
-    for (b, blk) in up.chunks_exact(480).enumerate() {
+    for (b, blk) in up.as_chunks::<480>().0.iter().enumerate() {
         let start = (b * 480) as i64;
         regions.extend(det.feed_with(blk, start, |t, s| hops.push((start, t, s))));
     }

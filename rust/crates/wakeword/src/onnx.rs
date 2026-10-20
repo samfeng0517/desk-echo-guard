@@ -222,10 +222,7 @@ fn push_floats(w: &Wire, out: &mut Vec<f32>) -> Result<()> {
         Wire::I32(v) => out.push(f32::from_bits(*v)),
         Wire::Len(b) => {
             ensure!(b.len() % 4 == 0, "float 陣列長度錯誤");
-            out.extend(
-                b.chunks_exact(4)
-                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])),
-            );
+            out.extend(b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)));
         }
         _ => bail!("預期 float 欄位"),
     }
@@ -238,10 +235,7 @@ fn push_doubles(w: &Wire, out: &mut Vec<f64>) -> Result<()> {
         Wire::I64(v) => out.push(f64::from_bits(*v)),
         Wire::Len(b) => {
             ensure!(b.len() % 8 == 0, "double 陣列長度錯誤");
-            out.extend(
-                b.chunks_exact(8)
-                    .map(|c| f64::from_le_bytes(c.try_into().unwrap_or_default())),
-            );
+            out.extend(b.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)));
         }
         _ => bail!("預期 double 欄位"),
     }
@@ -306,12 +300,16 @@ fn tensor(b: &[u8]) -> Result<(String, Tensor)> {
             let v: Vec<i64> = match raw {
                 Some(b) => match dtype {
                     INT64 => b
-                        .chunks_exact(8)
-                        .map(|c| i64::from_le_bytes(c.try_into().unwrap_or_default()))
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(|c| i64::from_le_bytes(*c))
                         .collect(),
                     INT32 => b
-                        .chunks_exact(4)
-                        .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as i64)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|c| i32::from_le_bytes(*c) as i64)
                         .collect(),
                     INT8 => b.iter().map(|&x| x as i8 as i64).collect(),
                     _ => b.iter().map(|&x| x as i64).collect(),

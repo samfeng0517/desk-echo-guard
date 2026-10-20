@@ -58,7 +58,7 @@ jobs:
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang-21 libfontconfig1-dev libxkbcommon-dev
+          sudo apt-get install -y -qq clang-21 libfontconfig1-dev libxkbcommon-dev libglib2.0-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

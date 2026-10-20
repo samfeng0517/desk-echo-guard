@@ -100,7 +100,7 @@ fn tile<const FMA: bool, const M: usize, const N: usize>(
     panel: &[f32],
 ) -> [[f32; N]; M] {
     let mut acc = [[0.0f32; N]; M];
-    for (kk, bv) in panel.chunks_exact(N).enumerate() {
+    for (kk, bv) in panel.as_chunks::<N>().0.iter().enumerate() {
         for r in 0..M {
             let x = ar[r][kk];
             for t in 0..N {
