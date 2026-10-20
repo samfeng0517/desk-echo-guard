@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 
-use crate::gemm::{self, PackedA, PackedB, Scratch};
+use crate::gemm::{self, PackedB, Scratch};
 use crate::onnx::{self, Attr, Data, Node, Tensor};
 
 #[derive(Clone, Copy, Debug)]
@@ -189,7 +189,8 @@ enum Op {
         win: Window,
         oc: usize,
         ic: usize,
-        w: PackedA,
+        /// rows ordered (ky, kx, ci), columns = output channels
+        w: PackedB,
         bias: Vec<f32>,
     },
     MaxPool(Window),
@@ -217,6 +218,8 @@ struct Step {
     out: usize,
     /// slots whose last use is this step (freed afterwards)
     free: Vec<usize>,
+    /// elementwise op whose first input dies here: may reuse its buffer
+    inplace: bool,
 }
 
 /// A loaded ONNX model with one input and (at least) one output.
@@ -380,7 +383,13 @@ impl Model {
                         win,
                         oc,
                         ic,
-                        w: PackedA::new(w.as_f32()?, oc, k),
+                        w: {
+                            let (wv, kk2) = (w.as_f32()?, win.kernel[0] * win.kernel[1]);
+                            PackedB::from_fn(k, oc, |r, o| {
+                                let (tap, ci) = (r / ic, r % ic);
+                                wv[(o * ic + ci) * kk2 + tap]
+                            })
+                        },
                         bias,
                     }
                 }
@@ -430,6 +439,7 @@ impl Model {
                 ins,
                 out,
                 free: Vec::new(),
+                inplace: false,
             });
         }
         let output = *slot
@@ -446,6 +456,13 @@ impl Model {
         for (v, i) in last {
             if !keep.contains(&v) {
                 steps[i].free.push(v);
+            }
+        }
+        for st in &mut steps {
+            if let (Op::Unary(_) | Op::Binary(_) | Op::Clip { .. }, Some(Some(first))) =
+                (&st.op, st.ins.first())
+            {
+                st.inplace = st.free.contains(first) && !st.ins[1..].contains(&Some(*first));
             }
         }
         let n_slots = slot.len();
@@ -480,31 +497,100 @@ impl Model {
             self.values[*s] = Some(t.clone());
         }
         self.values[self.input] = Some(Arc::new(input));
-        for st in &self.steps {
-            let ins: Vec<Option<&Tensor>> = st
-                .ins
+        let Self {
+            steps,
+            values,
+            scratch,
+            ..
+        } = self;
+        for st in steps.iter() {
+            // ops that cannot read channels-last data get it converted
+            let scalar_rest = st.ins[1..]
+                .iter()
+                .flatten()
+                .all(|s| values[*s].as_ref().is_some_and(|t| t.len() == 1));
+            let aware = match st.op {
+                Op::Conv { .. } | Op::MaxPool(_) | Op::Unary(_) | Op::Identity => true,
+                Op::Binary(_) | Op::Clip { .. } => scalar_rest,
+                _ => false,
+            };
+            if !aware {
+                for s in st.ins.iter().flatten() {
+                    if let Some(t) = values[*s].as_ref().filter(|t| t.nhwc) {
+                        values[*s] = Some(Arc::new(to_nchw(t)?));
+                    }
+                }
+            }
+            // reuse the dying first input's buffer for elementwise ops
+            let mut owned = None;
+            if let (true, Some(Some(s))) = (st.inplace, st.ins.first()) {
+                if let Some(arc) = values[*s].take() {
+                    match Arc::try_unwrap(arc) {
+                        Ok(t) => owned = Some(t),
+                        Err(arc) => values[*s] = Some(arc),
+                    }
+                }
+            }
+            let skip = usize::from(owned.is_some());
+            let mut ins: Vec<Option<&Tensor>> = st.ins[skip..]
                 .iter()
                 .map(|i| match i {
                     None => Ok(None),
-                    Some(s) => self.values[*s]
+                    Some(s) => values[*s]
                         .as_deref()
                         .map(Some)
                         .ok_or_else(|| anyhow!("值未計算")),
                 })
                 .collect::<Result<_>>()
                 .with_context(|| st.name.clone())?;
-            let y = eval(&st.op, &ins, &mut self.scratch).with_context(|| st.name.clone())?;
-            self.values[st.out] = Some(Arc::new(y));
+            let t0 = std::time::Instant::now();
+            let y = match owned {
+                Some(mut t) => {
+                    if eval_inplace(&st.op, &mut t, &ins).with_context(|| st.name.clone())? {
+                        t
+                    } else {
+                        ins.insert(0, Some(&t));
+                        eval(&st.op, &ins, scratch).with_context(|| st.name.clone())?
+                    }
+                }
+                None => eval(&st.op, &ins, scratch).with_context(|| st.name.clone())?,
+            };
+            PROF.with(|p| {
+                let mut p = p.borrow_mut();
+                let k = format!("{:?}", std::mem::discriminant(&st.op)) + &st.name[st.name.find('（').unwrap_or(0)..];
+                *p.entry(k).or_insert(0.0) += t0.elapsed().as_secs_f64();
+            });
+            values[st.out] = Some(Arc::new(y));
             for &f in &st.free {
-                self.values[f] = None;
+                if let Some(Ok(Tensor {
+                    data: Data::F32(v), ..
+                })) = values[f].take().map(Arc::try_unwrap)
+                {
+                    scratch.give(v);
+                }
             }
         }
-        let out = self.values[self.output]
+        let mut out = self.values[self.output]
             .take()
             .ok_or_else(|| anyhow!("模型輸出未計算"))?;
+        if out.nhwc {
+            out = Arc::new(to_nchw(&out)?);
+        }
         self.values.clear();
         Ok(out)
     }
+}
+
+thread_local! {
+    pub static PROF: std::cell::RefCell<HashMap<String, f64>> = Default::default();
+}
+pub fn dump_prof() {
+    PROF.with(|p| {
+        let mut v: Vec<_> = p.borrow().iter().map(|(k, v)| (*v, k.clone())).collect();
+        v.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for (t, k) in v { eprintln!("{:9.1} ms {k}", t * 1e3); }
+        p.borrow_mut().clear();
+    });
 }
 
 fn transpose2(a: &[f32], r: usize, c: usize) -> Vec<f32> {
@@ -552,27 +638,136 @@ fn strides(shape: &[usize]) -> Vec<usize> {
     s
 }
 
+fn unary(u: Un, v: &mut [f32]) {
+    fn map(v: &mut [f32], f: impl Fn(f32) -> f32) {
+        v.iter_mut().for_each(|x| *x = f(*x));
+    }
+    match u {
+        Un::Relu => map(v, |v| v.max(0.0)),
+        Un::Sigmoid => map(v, |v| 1.0 / (1.0 + (-v).exp())),
+        Un::Tanh => map(v, f32::tanh),
+        Un::Exp => map(v, f32::exp),
+        Un::Log => map(v, f32::ln),
+        Un::Sqrt => map(v, f32::sqrt),
+        Un::Neg => map(v, |v| -v),
+        Un::Abs => map(v, f32::abs),
+        Un::Reciprocal => map(v, |v| 1.0 / v),
+        Un::Floor => map(v, f32::floor),
+        Un::Ceil => map(v, f32::ceil),
+        Un::LeakyRelu(a) => map(v, |v| if v >= 0.0 { v } else { a * v }),
+    }
+}
+
+/// `a = f(a, b)` when `b` is a scalar or has `a`'s shape; false otherwise.
+fn binary_inplace(op: Bin, a: &mut Tensor, b: &Tensor) -> Result<bool> {
+    fn apply(a: &mut [f32], b: &[f32], f: impl Fn(f32, f32) -> f32) {
+        if b.len() == 1 {
+            let y = b[0];
+            a.iter_mut().for_each(|x| *x = f(*x, y));
+        } else {
+            a.iter_mut().zip(b).for_each(|(x, &y)| *x = f(*x, y));
+        }
+    }
+    if !(b.len() == 1 && b.shape.len() <= a.shape.len() || b.shape == a.shape) {
+        return Ok(false);
+    }
+    let bv = b.as_f32()?;
+    let Data::F32(av) = &mut a.data else {
+        return Ok(false);
+    };
+    match op {
+        Bin::Add => apply(av, bv, |a, b| a + b),
+        Bin::Sub => apply(av, bv, |a, b| a - b),
+        Bin::Mul => apply(av, bv, |a, b| a * b),
+        Bin::Div => apply(av, bv, |a, b| a / b),
+        Bin::Pow => apply(av, bv, pow),
+        Bin::Max => apply(av, bv, max_nan),
+        Bin::Min => apply(av, bv, min_nan),
+    }
+    Ok(true)
+}
+
+fn pow(a: f32, b: f32) -> f32 {
+    if b == 2.0 {
+        a * a
+    } else if b == 1.0 {
+        a
+    } else {
+        a.powf(b)
+    }
+}
+
+/// NaN-propagating like ONNX Runtime
+fn max_nan(a: f32, b: f32) -> f32 {
+    if a.is_nan() || a >= b {
+        a
+    } else {
+        b
+    }
+}
+
+fn min_nan(a: f32, b: f32) -> f32 {
+    if a.is_nan() || a <= b {
+        a
+    } else {
+        b
+    }
+}
+
+/// Evaluate `op` writing into its (owned, dying) first input `x`; `rest` are
+/// the other inputs.  Returns false when the op cannot run in place.
+fn eval_inplace(op: &Op, x: &mut Tensor, rest: &[Option<&Tensor>]) -> Result<bool> {
+    match op {
+        Op::Unary(u) => {
+            let Data::F32(v) = &mut x.data else {
+                bail!("預期 float 張量");
+            };
+            unary(*u, v);
+            Ok(true)
+        }
+        Op::Binary(b) if rest.len() == 1 => binary_inplace(*b, x, input(rest, 0)?),
+        Op::Clip { min, max } => {
+            let lo = min.or(opt_scalar(rest, 0)?);
+            let hi = max.or(opt_scalar(rest, 1)?);
+            let Data::F32(v) = &mut x.data else {
+                bail!("預期 float 張量");
+            };
+            for v in v.iter_mut() {
+                if let Some(lo) = lo {
+                    if *v < lo {
+                        *v = lo;
+                    }
+                }
+                if let Some(hi) = hi {
+                    if *v > hi {
+                        *v = hi;
+                    }
+                }
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tensor> {
     let x = input(ins, 0)?;
     Ok(match op {
         Op::Identity => x.clone(),
+        // channels-last input only with scalar other operands (see `run`)
+        Op::Binary(_) | Op::Clip { .. } if x.nhwc => {
+            let mut y = x.clone();
+            ensure!(eval_inplace(op, &mut y, &ins[1..])?, "channels-last 運算失敗");
+            y
+        }
         Op::Unary(u) => {
-            let f: fn(f32, f32) -> f32 = match u {
-                Un::Relu => |v, _| v.max(0.0),
-                Un::Sigmoid => |v, _| 1.0 / (1.0 + (-v).exp()),
-                Un::Tanh => |v, _| v.tanh(),
-                Un::Exp => |v, _| v.exp(),
-                Un::Log => |v, _| v.ln(),
-                Un::Sqrt => |v, _| v.sqrt(),
-                Un::Neg => |v, _| -v,
-                Un::Abs => |v, _| v.abs(),
-                Un::Reciprocal => |v, _| 1.0 / v,
-                Un::Floor => |v, _| v.floor(),
-                Un::Ceil => |v, _| v.ceil(),
-                Un::LeakyRelu(_) => |v, a| if v >= 0.0 { v } else { a * v },
-            };
-            let a = if let Un::LeakyRelu(a) = u { *a } else { 0.0 };
-            Tensor::f32(x.shape.clone(), x.as_f32()?.iter().map(|&v| f(v, a)).collect())
+            let mut v = x.as_f32()?.to_vec();
+            unary(*u, &mut v);
+            Tensor {
+                shape: x.shape.clone(),
+                data: Data::F32(v),
+                nhwc: x.nhwc,
+            }
         }
         Op::Binary(b) => {
             let mut acc = binary(*b, x, input(ins, 1)?)?;
@@ -615,6 +810,7 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
             Tensor {
                 shape,
                 data: x.data.clone(),
+                nhwc: false,
             }
         }
         Op::Squeeze(axes) => {
@@ -635,6 +831,7 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
             Tensor {
                 shape,
                 data: x.data.clone(),
+                nhwc: false,
             }
         }
         Op::Reshape { allowzero } => {
@@ -670,6 +867,7 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
             Tensor {
                 shape,
                 data: x.data.clone(),
+                nhwc: false,
             }
         }
         Op::Flatten(axis) => {
@@ -682,6 +880,7 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
             Tensor {
                 shape: vec![outer, x.len() / outer.max(1)],
                 data: x.data.clone(),
+                nhwc: false,
             }
         }
         Op::Transpose(perm) => {
@@ -719,7 +918,7 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
             w,
             bias,
         } => conv(x, win, *oc, *ic, w, bias, scratch)?,
-        Op::MaxPool(win) => maxpool(x, win)?,
+        Op::MaxPool(win) => maxpool(x, win, scratch)?,
         Op::MatMul(packed) => matmul(x, input(ins, 1)?, packed.as_ref(), scratch)?,
         Op::Gemm {
             trans_a,
@@ -821,29 +1020,20 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
     })
 }
 
-fn bin_fn(b: Bin) -> fn(f32, f32) -> f32 {
-    match b {
-        Bin::Add => |a, b| a + b,
-        Bin::Sub => |a, b| a - b,
-        Bin::Mul => |a, b| a * b,
-        Bin::Div => |a, b| a / b,
-        Bin::Pow => |a, b| {
-            if b == 2.0 {
-                a * a
-            } else if b == 1.0 {
-                a
-            } else {
-                a.powf(b)
-            }
-        },
-        Bin::Max => |a, b| if a.is_nan() || a >= b { a } else { b },
-        Bin::Min => |a, b| if a.is_nan() || a <= b { a } else { b },
+/// Numpy-style broadcasting binary op on float tensors.
+fn binary(op: Bin, a: &Tensor, b: &Tensor) -> Result<Tensor> {
+    match op {
+        Bin::Add => broadcast(a, b, |a, b| a + b),
+        Bin::Sub => broadcast(a, b, |a, b| a - b),
+        Bin::Mul => broadcast(a, b, |a, b| a * b),
+        Bin::Div => broadcast(a, b, |a, b| a / b),
+        Bin::Pow => broadcast(a, b, pow),
+        Bin::Max => broadcast(a, b, max_nan),
+        Bin::Min => broadcast(a, b, min_nan),
     }
 }
 
-/// Numpy-style broadcasting binary op on float tensors.
-fn binary(op: Bin, a: &Tensor, b: &Tensor) -> Result<Tensor> {
-    let f = bin_fn(op);
+fn broadcast(a: &Tensor, b: &Tensor, f: impl Fn(f32, f32) -> f32) -> Result<Tensor> {
     let (av, bv) = (a.as_f32()?, b.as_f32()?);
     if a.shape == b.shape {
         return Ok(Tensor::f32(
@@ -986,13 +1176,50 @@ fn reduce(x: &Tensor, kind: Red, axes: &[i64], keepdims: bool) -> Result<Tensor>
     Ok(Tensor::f32(shape, out))
 }
 
-/// Conv as im2col + GEMM, one batch item at a time.
+/// Data of a logical `[N, C, spatial..]` tensor in channels-last order.
+fn channels_last(x: &Tensor) -> Result<std::borrow::Cow<'_, [f32]>> {
+    let v = x.as_f32()?;
+    let (nb, c) = (x.shape[0], x.shape[1]);
+    let sp: usize = x.shape[2..].iter().product();
+    if x.nhwc || c == 1 || sp == 1 {
+        return Ok(v.into());
+    }
+    let mut out = Vec::with_capacity(v.len());
+    for b in v.chunks_exact((c * sp).max(1)).take(nb) {
+        for p in 0..sp {
+            out.extend((0..c).map(|ci| b[ci * sp + p]));
+        }
+    }
+    Ok(out.into())
+}
+
+/// A channels-last tensor back in the standard (NCHW) layout.
+fn to_nchw(x: &Tensor) -> Result<Tensor> {
+    let v = x.as_f32()?;
+    let (nb, c) = (x.shape[0], x.shape[1]);
+    let sp: usize = x.shape[2..].iter().product();
+    let data = if c == 1 || sp == 1 {
+        v.to_vec()
+    } else {
+        let mut out = Vec::with_capacity(v.len());
+        for b in v.chunks_exact((c * sp).max(1)).take(nb) {
+            for ci in 0..c {
+                out.extend((0..sp).map(|p| b[p * c + ci]));
+            }
+        }
+        out
+    };
+    Ok(Tensor::f32(x.shape.clone(), data))
+}
+
+/// Conv as im2col + GEMM on channels-last data (one batch item at a time);
+/// the result is channels-last.
 fn conv(
     x: &Tensor,
     win: &Window,
     oc: usize,
     ic: usize,
-    w: &PackedA,
+    w: &PackedB,
     bias: &[f32],
     scratch: &mut Scratch,
 ) -> Result<Tensor> {
@@ -1004,57 +1231,55 @@ fn conv(
     let [sh, sw] = win.strides;
     let [dh, dw] = win.dilations;
     let n = oh * ow;
-    let np = gemm::round_up(n.max(1), gemm::NR);
-    let k = ic * kh * kw;
-    debug_assert_eq!(k, w.k);
-    let xv = x.as_f32()?;
-    let mut out = vec![0.0f32; nb * oc * n];
-    for b in 0..nb {
-        let xb = &xv[b * c * h * wd..(b + 1) * c * h * wd];
-        let (col, cbuf) = scratch.b_and_c(k * np, w.mp * np);
-        for ci in 0..ic {
-            let plane = &xb[ci * h * wd..(ci + 1) * h * wd];
-            for ky in 0..kh {
-                for kx in 0..kw {
-                    let row = &mut col[((ci * kh + ky) * kw + kx) * np..][..n];
-                    for oy in 0..oh {
-                        let iy = (oy * sh + ky * dh) as isize - pt as isize;
-                        if iy < 0 || iy >= h as isize {
-                            continue;
-                        }
-                        let src = &plane[iy as usize * wd..(iy as usize + 1) * wd];
-                        let dst = &mut row[oy * ow..(oy + 1) * ow];
-                        let off = (kx * dw) as isize - pl as isize;
-                        if sw == 1 {
-                            // contiguous: dst[ox] = src[ox + off] where valid
-                            let lo = (-off).clamp(0, ow as isize) as usize;
-                            let hi = (wd as isize - off).clamp(0, ow as isize) as usize;
-                            if lo < hi {
-                                let s0 = (lo as isize + off) as usize;
-                                dst[lo..hi].copy_from_slice(&src[s0..s0 + (hi - lo)]);
-                            }
+    let mp = gemm::round_up(n.max(1), gemm::MR);
+    let k = kh * kw * c;
+    ensure!(k == w.k && oc == w.n, "Conv 權重形狀不符");
+    let xl = channels_last(x)?;
+    let mut out = scratch.take(nb * n * oc);
+    for xb in xl.chunks_exact((h * wd * c).max(1)).take(nb) {
+        let t0 = std::time::Instant::now();
+        let (a, cbuf) = scratch.bufs(mp * k, mp * w.np);
+        // im2col: row p = output position, (ky, kx, ci) taps
+        for oy in 0..oh {
+            for ox in 0..ow {
+                let row = &mut a[(oy * ow + ox) * k..][..k];
+                let ix0 = (ox * sw) as isize - pl as isize;
+                for ky in 0..kh {
+                    let seg = &mut row[ky * kw * c..(ky + 1) * kw * c];
+                    let iy = (oy * sh + ky * dh) as isize - pt as isize;
+                    if iy < 0 || iy >= h as isize {
+                        seg.fill(0.0);
+                        continue;
+                    }
+                    let base = iy as usize * wd;
+                    if dw == 1 && ix0 >= 0 && ix0 as usize + kw <= wd {
+                        let s0 = (base + ix0 as usize) * c;
+                        seg.copy_from_slice(&xb[s0..s0 + kw * c]);
+                        continue;
+                    }
+                    for (kx, d) in seg.chunks_exact_mut(c).enumerate() {
+                        let ix = ix0 + (kx * dw) as isize;
+                        if ix < 0 || ix >= wd as isize {
+                            d.fill(0.0);
                         } else {
-                            for (ox, d) in dst.iter_mut().enumerate() {
-                                let ix = (ox * sw) as isize + off;
-                                if ix >= 0 && ix < wd as isize {
-                                    *d = src[ix as usize];
-                                }
-                            }
+                            let s0 = (base + ix as usize) * c;
+                            d.copy_from_slice(&xb[s0..s0 + c]);
                         }
                     }
                 }
             }
         }
-        gemm::gemm(&w.data, col, cbuf, w.mp, k, np);
-        for (o, (dst, src)) in out[b * oc * n..(b + 1) * oc * n]
-            .chunks_exact_mut(n.max(1))
-            .zip(cbuf.chunks_exact(np))
-            .enumerate()
-        {
-            let bo = bias[o];
-            for (d, s) in dst.iter_mut().zip(src) {
-                *d = s + bo;
-            }
+        a[n * k..].fill(0.0);
+        let t1 = std::time::Instant::now();
+        gemm::gemm(a, &w.data, cbuf, mp, k, w.np);
+        let t2 = std::time::Instant::now();
+        PROF.with(|p| {
+            let mut p = p.borrow_mut();
+            *p.entry("conv.im2col".into()).or_insert(0.0) += (t1 - t0).as_secs_f64();
+            *p.entry("conv.gemm".into()).or_insert(0.0) += (t2 - t1).as_secs_f64();
+        });
+        for row in cbuf.chunks_exact(w.np).take(n) {
+            out.extend(row[..oc].iter().zip(bias).map(|(v, b)| v + b));
         }
     }
     let shape = if win.one_d {
@@ -1062,33 +1287,45 @@ fn conv(
     } else {
         vec![nb, oc, oh, ow]
     };
-    Ok(Tensor::f32(shape, out))
+    Ok(Tensor {
+        shape,
+        data: Data::F32(out),
+        nhwc: true,
+    })
 }
 
-fn maxpool(x: &Tensor, win: &Window) -> Result<Tensor> {
+/// MaxPool on channels-last data; the result is channels-last.
+fn maxpool(x: &Tensor, win: &Window, scratch: &mut Scratch) -> Result<Tensor> {
     let [nb, c, h, wd] = win.nchw(&x.shape)?;
     let (oh, pt) = win.out_dim(0, h)?;
     let (ow, pl) = win.out_dim(1, wd)?;
-    let xv = x.as_f32()?;
-    let mut out = Vec::with_capacity(nb * c * oh * ow);
-    for plane in xv.chunks_exact((h * wd).max(1)).take(nb * c) {
+    let [kh, kw] = win.kernel;
+    let [sh, sw] = win.strides;
+    let [dh, dw] = win.dilations;
+    let xl = channels_last(x)?;
+    let mut out = scratch.take(nb * c * oh * ow);
+    for xb in xl.chunks_exact((h * wd * c).max(1)).take(nb) {
         for oy in 0..oh {
             for ox in 0..ow {
-                let mut m = f32::NEG_INFINITY;
-                for ky in 0..win.kernel[0] {
-                    let iy = (oy * win.strides[0] + ky * win.dilations[0]) as isize - pt as isize;
+                let o0 = out.len();
+                out.resize(o0 + c, f32::NEG_INFINITY);
+                let dst = &mut out[o0..];
+                for ky in 0..kh {
+                    let iy = (oy * sh + ky * dh) as isize - pt as isize;
                     if iy < 0 || iy >= h as isize {
                         continue;
                     }
-                    for kx in 0..win.kernel[1] {
-                        let ix =
-                            (ox * win.strides[1] + kx * win.dilations[1]) as isize - pl as isize;
-                        if ix >= 0 && ix < wd as isize {
-                            m = m.max(plane[iy as usize * wd + ix as usize]);
+                    for kx in 0..kw {
+                        let ix = (ox * sw + kx * dw) as isize - pl as isize;
+                        if ix < 0 || ix >= wd as isize {
+                            continue;
+                        }
+                        let s0 = (iy as usize * wd + ix as usize) * c;
+                        for (d, &v) in dst.iter_mut().zip(&xb[s0..s0 + c]) {
+                            *d = max_nan(v, *d);
                         }
                     }
                 }
-                out.push(m);
             }
         }
     }
@@ -1097,7 +1334,11 @@ fn maxpool(x: &Tensor, win: &Window) -> Result<Tensor> {
     } else {
         vec![nb, c, oh, ow]
     };
-    Ok(Tensor::f32(shape, out))
+    Ok(Tensor {
+        shape,
+        data: Data::F32(out),
+        nhwc: true,
+    })
 }
 
 /// numpy `matmul` for A of rank >= 1 and B of rank 1 or 2, or equal batch

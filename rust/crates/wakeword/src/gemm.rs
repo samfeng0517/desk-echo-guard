@@ -1,6 +1,7 @@
 //! Small f32 matrix multiply for the convolution / dense layers: a 6x16
-//! register-blocked kernel, compiled twice (AVX2 + FMA picked at run time on
-//! x86-64, plus a portable fallback).
+//! register-blocked kernel over a row-major A and a pre-packed B, compiled
+//! twice (AVX2 + FMA picked at run time on x86-64, plus a portable
+//! fallback).
 
 /// Rows of A per micro-tile.
 pub const MR: usize = 6;
@@ -11,8 +12,8 @@ pub fn round_up(x: usize, m: usize) -> usize {
     x.div_ceil(m) * m
 }
 
-/// `c[mp x np] = a[mp x k] * b[k x np]` (row-major), with `mp % MR == 0`
-/// and `np % NR == 0` (callers zero-pad).
+/// `c[mp x np] = a[mp x k] * b` (row-major A and C), `b` packed by
+/// [`PackedB`] (`k x np`), `mp % MR == 0`, `np % NR == 0`.
 pub fn gemm(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: usize, np: usize) {
     assert!(mp.is_multiple_of(MR) && np.is_multiple_of(NR));
     assert!(a.len() >= mp * k && b.len() >= k * np && c.len() >= mp * np);
@@ -34,51 +35,36 @@ fn gemm_avx2(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: usize, np: usize
 
 #[inline(always)]
 fn kernel<const FMA: bool>(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: usize, np: usize) {
-    for j in (0..np).step_by(NR) {
-        for i in (0..mp).step_by(MR) {
-            let rows: [&[f32]; MR] = std::array::from_fn(|r| &a[(i + r) * k..(i + r + 1) * k]);
+    if k == 0 {
+        c[..mp * np].fill(0.0);
+        return;
+    }
+    for (it, arows) in a[..mp * k].chunks_exact(MR * k).enumerate() {
+        let rows: [&[f32]; MR] = std::array::from_fn(|r| &arows[r * k..(r + 1) * k]);
+        for (jt, bpanel) in b[..k * np].chunks_exact(k * NR).enumerate() {
             let mut acc = [[0.0f32; NR]; MR];
-            for kk in 0..k {
-                let off = kk * np + j;
-                let bp: &[f32; NR] = b[off..off + NR].try_into().expect("NR slice");
+            for (kk, bv) in bpanel.chunks_exact(NR).enumerate() {
                 for r in 0..MR {
-                    let av = rows[r][kk];
+                    let x = rows[r][kk];
                     for t in 0..NR {
                         acc[r][t] = if FMA {
-                            av.mul_add(bp[t], acc[r][t])
+                            x.mul_add(bv[t], acc[r][t])
                         } else {
-                            acc[r][t] + av * bp[t]
+                            acc[r][t] + x * bv[t]
                         };
                     }
                 }
             }
             for (r, row) in acc.iter().enumerate() {
-                let off = (i + r) * np + j;
+                let off = (it * MR + r) * np + jt * NR;
                 c[off..off + NR].copy_from_slice(row);
             }
         }
     }
 }
 
-/// A constant left operand (`m x k`), rows zero-padded to a multiple of MR.
-#[derive(Clone, Debug)]
-pub struct PackedA {
-    pub k: usize,
-    pub mp: usize,
-    pub data: Vec<f32>,
-}
-
-impl PackedA {
-    pub fn new(a: &[f32], m: usize, k: usize) -> Self {
-        let mp = round_up(m.max(1), MR);
-        let mut data = vec![0.0; mp * k];
-        data[..m * k].copy_from_slice(&a[..m * k]);
-        Self { k, mp, data }
-    }
-}
-
-/// A constant right operand (`k x n`), columns zero-padded to a multiple of
-/// NR.
+/// A constant right operand (`k x n`), packed into NR-column panels
+/// (zero-padded to `np` columns).
 #[derive(Clone, Debug)]
 pub struct PackedB {
     pub k: usize,
@@ -88,11 +74,19 @@ pub struct PackedB {
 }
 
 impl PackedB {
+    /// From row-major `b[k x n]`.
     pub fn new(b: &[f32], k: usize, n: usize) -> Self {
+        Self::from_fn(k, n, |kk, j| b[kk * n + j])
+    }
+
+    /// Element `(kk, j)` is `f(kk, j)`.
+    pub fn from_fn(k: usize, n: usize, f: impl Fn(usize, usize) -> f32) -> Self {
         let np = round_up(n.max(1), NR);
         let mut data = vec![0.0; k * np];
-        for (dst, src) in data.chunks_exact_mut(np).zip(b.chunks_exact(n.max(1))) {
-            dst[..n].copy_from_slice(src);
+        for kk in 0..k {
+            for j in 0..n {
+                data[((j / NR) * k + kk) * NR + j % NR] = f(kk, j);
+            }
         }
         Self { k, n, np, data }
     }
@@ -102,12 +96,10 @@ impl PackedB {
 pub fn matmul_b(a: &[f32], m: usize, b: &PackedB, scratch: &mut Scratch) -> Vec<f32> {
     let (k, n, np) = (b.k, b.n, b.np);
     let mp = round_up(m.max(1), MR);
-    zeroed(&mut scratch.a, mp * k)[..m * k].copy_from_slice(&a[..m * k]);
-    if scratch.c.len() < mp * np {
-        scratch.c.resize(mp * np, 0.0);
-    }
-    let c = &mut scratch.c[..mp * np];
-    gemm(&scratch.a[..mp * k], &b.data, c, mp, k, np);
+    let (ap, c) = scratch.bufs(mp * k, mp * np);
+    ap[..m * k].copy_from_slice(&a[..m * k]);
+    ap[m * k..].fill(0.0);
+    gemm(ap, &b.data, c, mp, k, np);
     let mut out = Vec::with_capacity(m * n);
     for row in c.chunks_exact(np).take(m) {
         out.extend_from_slice(&row[..n]);
@@ -115,29 +107,42 @@ pub fn matmul_b(a: &[f32], m: usize, b: &PackedB, scratch: &mut Scratch) -> Vec<
     out
 }
 
-/// Reusable buffers (padded operands, results).
+/// Reusable buffers (A operand, result, recycled tensor storage).
 #[derive(Default, Debug)]
 pub struct Scratch {
     a: Vec<f32>,
-    b: Vec<f32>,
     c: Vec<f32>,
+    pool: Vec<Vec<f32>>,
 }
 
 impl Scratch {
-    /// `(b, c)` at once, for callers that fill B then multiply into C.
-    pub fn b_and_c(&mut self, nb: usize, nc: usize) -> (&mut [f32], &mut [f32]) {
-        zeroed(&mut self.b, nb);
+    /// An A buffer of `na` values and a result buffer of `nc` (contents
+    /// unspecified).
+    pub fn bufs(&mut self, na: usize, nc: usize) -> (&mut [f32], &mut [f32]) {
+        if self.a.len() < na {
+            self.a.resize(na, 0.0);
+        }
         if self.c.len() < nc {
             self.c.resize(nc, 0.0);
         }
-        (&mut self.b[..nb], &mut self.c[..nc])
+        (&mut self.a[..na], &mut self.c[..nc])
     }
-}
 
-fn zeroed(v: &mut Vec<f32>, n: usize) -> &mut [f32] {
-    v.clear();
-    v.resize(n, 0.0);
-    &mut v[..n]
+    /// An empty vector with room for `n` values, recycled when possible.
+    pub fn take(&mut self, n: usize) -> Vec<f32> {
+        match self.pool.iter().position(|v| v.capacity() >= n) {
+            Some(i) => self.pool.swap_remove(i),
+            None => Vec::with_capacity(n),
+        }
+    }
+
+    /// Return a no longer needed buffer for `take`.
+    pub fn give(&mut self, mut v: Vec<f32>) {
+        if self.pool.len() < 16 && v.capacity() >= 1024 {
+            v.clear();
+            self.pool.push(v);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -159,25 +164,53 @@ mod tests {
     #[test]
     fn matches_naive_on_odd_sizes() {
         let mut s = Scratch::default();
-        for &(m, k, n) in &[(1, 1, 1), (5, 7, 3), (13, 29, 17), (257, 512, 9), (2, 300, 40)] {
-            let a: Vec<f32> = (0..m * k).map(|i| ((i * 37 % 101) as f32 - 50.0) / 25.0).collect();
-            let b: Vec<f32> = (0..k * n).map(|i| ((i * 53 % 97) as f32 - 48.0) / 30.0).collect();
+        for &(m, k, n) in &[
+            (1, 1, 1),
+            (5, 7, 3),
+            (13, 29, 17),
+            (257, 512, 9),
+            (2, 300, 40),
+            (3, 0, 4),
+        ] {
+            let a: Vec<f32> = (0..m * k)
+                .map(|i| ((i * 37 % 101) as f32 - 50.0) / 25.0)
+                .collect();
+            let b: Vec<f32> = (0..k * n)
+                .map(|i| ((i * 53 % 97) as f32 - 48.0) / 30.0)
+                .collect();
             let want = naive(&a, &b, m, k, n);
             let got = matmul_b(&a, m, &PackedB::new(&b, k, n), &mut s);
+            assert_eq!(got.len(), m * n);
             for (g, w) in got.iter().zip(&want) {
-                assert!((g - w).abs() <= 1e-4 * (1.0 + w.abs()), "{m}x{k}x{n}: {g} vs {w}");
+                assert!(
+                    (g - w).abs() <= 1e-4 * (1.0 + w.abs()),
+                    "{m}x{k}x{n}: {g} vs {w}"
+                );
             }
-            // the padded-A path
-            let pa = PackedA::new(&a, m, k);
-            let pb = PackedB::new(&b, k, n);
-            let mut c = vec![0.0; pa.mp * pb.np];
-            gemm(&pa.data, &pb.data, &mut c, pa.mp, k, pb.np);
-            for i in 0..m {
-                for j in 0..n {
-                    let (g, w) = (c[i * pb.np + j], want[i * n + j]);
-                    assert!((g - w).abs() <= 1e-4 * (1.0 + w.abs()));
-                }
+        }
+    }
+
+    #[test]
+    #[ignore = "benchmark"]
+    fn bench_gemm() {
+        for &(m, k, n) in &[(2368, 72, 24), (544, 144, 48), (48, 288, 96), (16, 512, 257)] {
+            let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32).collect();
+            let pb = PackedB::from_fn(k, n, |i, j| ((i + j) % 5) as f32);
+            let mp = round_up(m, MR);
+            let mut a2 = a.clone();
+            a2.resize(mp * k, 0.0);
+            let mut c = vec![0.0; mp * pb.np];
+            let reps = 200;
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                gemm(&a2, &pb.data, &mut c, mp, k, pb.np);
             }
+            let s = t.elapsed().as_secs_f64() / reps as f64;
+            eprintln!(
+                "{m}x{k}x{n}: {:.3} ms, {:.1} GMAC/s",
+                s * 1e3,
+                (m * k * n) as f64 / s / 1e9
+            );
         }
     }
 }

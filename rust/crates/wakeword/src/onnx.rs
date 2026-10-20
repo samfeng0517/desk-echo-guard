@@ -15,8 +15,12 @@ pub enum Data {
 
 #[derive(Clone, Debug)]
 pub struct Tensor {
+    /// logical (ONNX) shape
     pub shape: Vec<usize>,
     pub data: Data,
+    /// memory is channels-last (`[N, spatial.., C]` for a logical
+    /// `[N, C, spatial..]`); only produced by the interpreter's conv / pool
+    pub nhwc: bool,
 }
 
 impl Tensor {
@@ -24,6 +28,7 @@ impl Tensor {
         Self {
             shape,
             data: Data::F32(v),
+            nhwc: false,
         }
     }
 
@@ -31,6 +36,7 @@ impl Tensor {
         Self {
             shape,
             data: Data::I64(v),
+            nhwc: false,
         }
     }
 
