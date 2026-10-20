@@ -1,0 +1,460 @@
+import { Button, Switch, SpinBox, Slider, TextEdit, AboutSlint } from "std-widgets.slint";
+import { Theme, Icons } from "../theme.slint";
+import { Tips } from "../tips.slint";
+import { Tip, Card, SettingsCard, ExpanderCard, CardRow, RadioOption, InfoBar, LinkText, FluentIcon, Caption } from "../controls.slint";
+import { AppState, Cfg, Links } from "../state.slint";
+import { Page, Section } from "page.slint";
+
+// Switch with the Windows 11 "開啟 / 關閉" label on its left.
+component LabeledSwitch {
+    in property <string> tip;
+    in-out property <bool> checked;
+    callback toggled();
+    HorizontalLayout {
+        spacing: 12px;
+        Text {
+            text: root.checked ? "開啟" : "關閉";
+            font-size: Theme.body;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        Tip {
+            tip: root.tip;
+            focused: sw.has-focus;
+            sw := Switch {
+                checked <=> root.checked;
+                toggled => {
+                    root.toggled();
+                }
+            }
+        }
+    }
+}
+
+export component AdvancedPage inherits Page {
+    title: "進階";
+    bars: AppState.advanced-bars;
+
+    // ---- echo cancellation engine
+    Section {
+        text: "聲音處理";
+    }
+    Card {
+        Tip {
+            tip: Tips.engine;
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    FluentIcon {
+                        source: Icons.engine;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: "回聲消除引擎";
+                        font-size: Theme.body;
+                        color: Theme.text;
+                    }
+                    Caption {
+                        text: "用哪一種方法消除回音。通常用 WebRTC。";
+                    }
+                }
+            }
+        }
+        VerticalLayout {
+            padding-left: 36px;
+            spacing: 2px;
+            RadioOption {
+                title: "自動";
+                description: "有 WebRTC 就用 WebRTC。";
+                tip: Tips.engine-auto;
+                selected: Cfg.engine-index == 0;
+                clicked => {
+                    Cfg.engine-index = 0;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "WebRTC（推薦）";
+                description: "消得最乾淨，開始後 1–3 秒就生效。";
+                tip: Tips.engine-webrtc;
+                selected: Cfg.engine-index == 1;
+                clicked => {
+                    Cfg.engine-index = 1;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "Speex";
+                description: "雙方同時講話比較不會被吃字。";
+                tip: Tips.engine-speex;
+                selected: Cfg.engine-index == 2;
+                clicked => {
+                    Cfg.engine-index = 2;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "NLMS（備援）";
+                description: "內建的簡易版本，其他引擎都不能用時再選。";
+                tip: Tips.engine-nlms;
+                selected: Cfg.engine-index == 3;
+                clicked => {
+                    Cfg.engine-index = 3;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "關閉（只轉送）";
+                description: "不消除回音，只把麥克風聲音轉過去。";
+                tip: Tips.engine-off;
+                selected: Cfg.engine-index == 4;
+                clicked => {
+                    Cfg.engine-index = 4;
+                    Cfg.changed();
+                }
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.wave;
+        title: "降噪";
+        description: "去除風扇、冷氣等持續的背景聲";
+        tip: Tips.ns;
+        LabeledSwitch {
+            tip: Tips.ns;
+            checked <=> Cfg.noise-suppression;
+            toggled => {
+                Cfg.changed();
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.histogram;
+        title: "去除低頻嗡嗡聲（高通）";
+        description: "去掉電源、冷氣的低沉嗡嗡聲";
+        tip: Tips.hpf;
+        LabeledSwitch {
+            tip: Tips.hpf;
+            checked <=> Cfg.high-pass;
+            toggled => {
+                Cfg.changed();
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.gauge;
+        title: "自動音量（AGC）";
+        description: "自動把你的音量調平均，通常關著";
+        tip: Tips.agc;
+        LabeledSwitch {
+            tip: Tips.agc;
+            checked <=> Cfg.agc;
+            toggled => {
+                Cfg.changed();
+            }
+        }
+    }
+
+    // ---- delay
+    Section {
+        text: "延遲";
+    }
+    SettingsCard {
+        icon: Icons.ruler;
+        title: "量測延遲";
+        description: "一直有殘留回音時才需要。喇叭會播約 4 秒沙沙聲，請保持安靜。";
+        tip: Tips.calibrate;
+        Tip {
+            tip: Tips.calibrate;
+            focused: cal.has-focus;
+            cal := Button {
+                text: AppState.calibrating ? "量測中…" : "量測延遲";
+                enabled: !AppState.calibrating && !AppState.busy;
+                clicked => {
+                    AppState.calibrate();
+                }
+            }
+        }
+    }
+    if AppState.calib-shown: InfoBar {
+        severity: AppState.calib-bar.severity;
+        title: AppState.calib-bar.title;
+        message: AppState.calib-bar.message;
+        action: AppState.calib-bar.action;
+        action-tip: AppState.calib-bar.tip;
+        action-clicked => {
+            AppState.infobar-action(AppState.calib-bar.action-id);
+        }
+    }
+    SettingsCard {
+        icon: Icons.speaker;
+        title: "喇叭延遲";
+        description: "毫秒（ms）。通常是 0";
+        tip: Tips.ref-delay;
+        Tip {
+            tip: Tips.ref-delay;
+            focused: sp1.has-focus;
+            sp1 := SpinBox {
+                width: 128px;
+                minimum: 0;
+                maximum: 1000;
+                step-size: 5;
+                value <=> Cfg.delay-ms;
+                edited => {
+                    Cfg.changed();
+                }
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.mic;
+        title: "麥克風延遲";
+        description: "毫秒（ms）。通常是 0";
+        tip: Tips.mic-delay;
+        Tip {
+            tip: Tips.mic-delay;
+            focused: sp2.has-focus;
+            sp2 := SpinBox {
+                width: 128px;
+                minimum: 0;
+                maximum: 500;
+                step-size: 5;
+                value <=> Cfg.mic-delay-ms;
+                edited => {
+                    Cfg.changed();
+                }
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.speaker-edit;
+        title: "輸出音量";
+        description: "送給對方的音量。通常是 0 dB";
+        tip: Tips.gain;
+        Tip {
+            tip: Tips.gain;
+            focused: gain.has-focus;
+            HorizontalLayout {
+                spacing: 12px;
+                gain := Slider {
+                    width: 180px;
+                    minimum: -20;
+                    maximum: 20;
+                    step: 1;
+                    value <=> Cfg.gain-db;
+                    released => {
+                        Cfg.changed();
+                    }
+                }
+                Text {
+                    width: 52px;
+                    text: (Cfg.gain-db > 0 ? "+" : "") + round(Cfg.gain-db) + " dB";
+                    font-size: Theme.body;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                }
+            }
+        }
+    }
+
+    // ---- start-up
+    Section {
+        text: "啟動";
+    }
+    SettingsCard {
+        icon: Icons.power;
+        title: "登入 Windows 時自動啟動";
+        description: AppState.autostart-available ? "開機後自動在背景開始消除回音，使用目前的設定" : "只有 Windows 版才有這個功能";
+        tip: Tips.autostart;
+        enabled: AppState.autostart-available;
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: AppState.autostart ? "開啟" : "關閉";
+                font-size: Theme.body;
+                color: AppState.autostart-available ? Theme.text : Theme.text-disabled;
+                vertical-alignment: center;
+            }
+            Tip {
+                tip: Tips.autostart;
+                focused: auto-sw.has-focus;
+                auto-sw := Switch {
+                    enabled: AppState.autostart-available;
+                    checked: AppState.autostart;
+                    toggled => {
+                        AppState.set-autostart(self.checked);
+                    }
+                }
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.window;
+        title: "關閉視窗時縮到系統匣";
+        description: "按 X 不會結束程式，回聲消除會在背景繼續。要結束請在右下角圖示按右鍵 →「結束」。";
+        tip: Tips.close-to-tray;
+    }
+
+    // ---- troubleshooting / about
+    Section {
+        text: "疑難排解與關於";
+    }
+    ExpanderCard {
+        icon: Icons.pulse;
+        title: "診斷";
+        description: "技術數字、除錯錄音與執行記錄，給作者找問題用";
+        tip: Tips.diagnostics;
+        expanded <=> AppState.diag-expanded;
+
+        VerticalLayout {
+            padding-left: 52px;
+            padding-right: Theme.card-padding;
+            padding-top: 12px;
+            padding-bottom: 12px;
+            spacing: 6px;
+            for row in AppState.diag: Tip {
+                tip: row.tip;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: row.label;
+                        font-size: Theme.body;
+                        color: Theme.text-secondary;
+                        width: 220px;
+                    }
+                    Text {
+                        text: row.value;
+                        font-size: Theme.body;
+                        color: Theme.text;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+        CardRow {
+            title: "除錯錄音資料夾";
+            description: Cfg.debug-wav == "" ? "不錄音（建議）" : Cfg.debug-wav;
+            tip: Tips.debug-wav;
+            if Cfg.debug-wav != "": Tip {
+                tip: Tips.debug-wav-clear;
+                Button {
+                    text: "不錄音";
+                    clicked => {
+                        Cfg.debug-wav = "";
+                        Cfg.changed();
+                    }
+                }
+            }
+            Tip {
+                tip: Tips.debug-wav-pick;
+                Button {
+                    text: "選擇資料夾…";
+                    icon: Icons.folder;
+                    colorize-icon: true;
+                    clicked => {
+                        AppState.pick-debug-folder();
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.divider;
+        }
+        VerticalLayout {
+            padding-left: 52px;
+            padding-right: Theme.card-padding;
+            padding-top: 12px;
+            padding-bottom: 16px;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "執行記錄（最近 300 行）";
+                    font-size: Theme.body;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Tip {
+                    tip: Tips.copy-log;
+                    Button {
+                        text: "複製記錄";
+                        icon: Icons.copy;
+                        colorize-icon: true;
+                        clicked => {
+                            AppState.copy-log();
+                        }
+                    }
+                }
+                Tip {
+                    tip: Tips.open-config;
+                    Button {
+                        text: "開啟設定檔資料夾";
+                        icon: Icons.folder;
+                        colorize-icon: true;
+                        clicked => {
+                            AppState.open-config-folder();
+                        }
+                    }
+                }
+            }
+            TextEdit {
+                height: 220px;
+                read-only: true;
+                wrap: no-wrap;
+                font-size: 12px;
+                text: AppState.log-text;
+            }
+        }
+    }
+    ExpanderCard {
+        icon: Icons.info;
+        title: "關於";
+        description: "Desk Echo Guard " + AppState.version;
+        tip: Tips.about;
+        expanded <=> AppState.about-expanded;
+
+        VerticalLayout {
+            padding-left: 52px;
+            padding-right: Theme.card-padding;
+            padding-top: 16px;
+            padding-bottom: 16px;
+            spacing: 8px;
+            Text {
+                text: "Desk Echo Guard " + AppState.version;
+                font-size: Theme.body;
+                font-weight: 600;
+                color: Theme.text;
+            }
+            Caption {
+                text: "讓桌上型喇叭＋麥克風在 Discord / LINE 通話時不會有回音。以 MIT 授權釋出。";
+            }
+            HorizontalLayout {
+                alignment: start;
+                LinkText {
+                    text: "GitHub 專案頁面";
+                    tip: Tips.github;
+                    activated => {
+                        AppState.open-url(Links.github);
+                    }
+                }
+            }
+            Caption {
+                text: "使用 Slint 製作（Royalty-free Desktop 授權）；圖示取自 Microsoft Fluent UI System Icons（MIT 授權）。";
+            }
+            HorizontalLayout {
+                alignment: start;
+                AboutSlint {
+                    width: 200px;
+                    height: 96px;
+                }
+            }
+        }
+    }
+}

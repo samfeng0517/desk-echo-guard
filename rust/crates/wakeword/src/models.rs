@@ -28,7 +28,9 @@ pub fn cache_dir() -> Option<PathBuf> {
 
 pub(crate) fn reject_tflite(model_paths: &[PathBuf]) -> Result<()> {
     for p in model_paths {
-        let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase());
         match ext.as_deref() {
             Some("onnx") => {}
             Some("tflite") => bail!(
@@ -56,7 +58,8 @@ pub fn feature_model_paths(model_paths: &[PathBuf]) -> Result<(PathBuf, PathBuf)
     if let (Some(m), Some(e)) = (find(MELSPEC_FILE), find(EMBEDDING_FILE)) {
         return Ok((m, e));
     }
-    let cache = cache.ok_or_else(|| anyhow!("找不到使用者快取資料夾（LOCALAPPDATA / HOME 未設定）"))?;
+    let cache =
+        cache.ok_or_else(|| anyhow!("找不到使用者快取資料夾（LOCALAPPDATA / HOME 未設定）"))?;
     let mut out = Vec::new();
     for name in [MELSPEC_FILE, EMBEDDING_FILE] {
         let dest = cache.join(name);

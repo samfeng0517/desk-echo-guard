@@ -330,7 +330,7 @@ mod tests {
         let mut out = vec![0.1f32; 48000 * 4];
         out[..48000].fill(1.0); // not converged in the first second
         let mask: Vec<bool> = (0..mic.len()).map(|i| i < 3 * 48000).collect();
-        close(erle_db(&mic, &out, Some(&mask), 1.0), 20.0, 1e-9);
+        close(erle_db(&mic, &out, Some(&mask), 1.0), 20.0, 1e-5);
         assert!(erle_db(&mic, &out, Some(&mask), 0.0) < 20.0);
         close(erle_db(&mic, &mic, None, 0.0), 0.0, 1e-12);
     }

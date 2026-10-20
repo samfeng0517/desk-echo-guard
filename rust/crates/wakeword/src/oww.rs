@@ -105,7 +105,11 @@ pub struct OwwModel {
 }
 
 impl OwwModel {
-    pub fn new(model_paths: &[std::path::PathBuf], melspec: &Path, embedding: &Path) -> Result<Self> {
+    pub fn new(
+        model_paths: &[std::path::PathBuf],
+        melspec: &Path,
+        embedding: &Path,
+    ) -> Result<Self> {
         if model_paths.is_empty() {
             bail!("沒有指定喚醒詞模型（.onnx）");
         }
@@ -115,7 +119,11 @@ impl OwwModel {
         for p in model_paths {
             let session = load_session(p)?;
             let dims = |i: bool| -> Vec<i64> {
-                let o = if i { session.inputs().first() } else { session.outputs().first() };
+                let o = if i {
+                    session.inputs().first()
+                } else {
+                    session.outputs().first()
+                };
                 o.and_then(|o| o.dtype().tensor_shape())
                     .map(|s| s.to_vec())
                     .unwrap_or_default()
@@ -128,7 +136,11 @@ impl OwwModel {
                     din
                 );
             }
-            let n_out = if dout.len() >= 2 && dout[1] > 0 { dout[1] as usize } else { 1 };
+            let n_out = if dout.len() >= 2 && dout[1] > 0 {
+                dout[1] as usize
+            } else {
+                1
+            };
             let name = p
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
@@ -201,7 +213,11 @@ impl OwwModel {
                 }
             } else if m.n_out == 1 {
                 // not enough samples yet: repeat the previous prediction
-                pred[0] = if m.history[0].0 > 0 { m.history[0].1 } else { 0.0 };
+                pred[0] = if m.history[0].0 > 0 {
+                    m.history[0].1
+                } else {
+                    0.0
+                };
             } else {
                 pred.iter_mut().for_each(|p| *p = 0.0);
             }
@@ -265,7 +281,11 @@ impl OwwModel {
             self.accumulated = 0;
         }
         trim_rows(&mut self.feat_buf, EMB_DIM, FEAT_MAX_ROWS);
-        Ok(if processed != 0 { processed } else { self.accumulated })
+        Ok(if processed != 0 {
+            processed
+        } else {
+            self.accumulated
+        })
     }
 
     fn buffer_raw(&mut self, x: &[i16]) {
@@ -283,9 +303,13 @@ impl OwwModel {
         let audio = &self.raw[self.raw.len() - take..];
         run_into(&mut self.mel, &[1, take], audio, &mut self.tmp)?;
         if self.tmp.len() % MEL_BINS != 0 {
-            bail!("melspectrogram 模型輸出長度 {} 不是 32 的倍數", self.tmp.len());
+            bail!(
+                "melspectrogram 模型輸出長度 {} 不是 32 的倍數",
+                self.tmp.len()
+            );
         }
-        self.mel_buf.extend(self.tmp.iter().map(|&v| v / 10.0 + 2.0));
+        self.mel_buf
+            .extend(self.tmp.iter().map(|&v| v / 10.0 + 2.0));
         trim_rows(&mut self.mel_buf, MEL_BINS, MEL_MAX_ROWS);
         Ok(())
     }

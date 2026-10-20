@@ -9,7 +9,9 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use echoguard_dsp::IntegerResampler;
-use echoguard_wakeword::{download, feature_model_paths, OpenWakeWordDetector, OwwModel, HOP, RELEASE_URL};
+use echoguard_wakeword::{
+    download, feature_model_paths, OpenWakeWordDetector, OwwModel, HOP, RELEASE_URL,
+};
 
 const FILES: [&str; 4] = [
     "melspectrogram.onnx",
@@ -31,7 +33,10 @@ fn models_dir() -> Option<PathBuf> {
             continue;
         }
         if std::env::var_os("ECHOGUARD_OWW_OFFLINE").is_some() {
-            eprintln!("SKIP: {} missing and ECHOGUARD_OWW_OFFLINE is set", p.display());
+            eprintln!(
+                "SKIP: {} missing and ECHOGUARD_OWW_OFFLINE is set",
+                p.display()
+            );
             return None;
         }
         if let Err(e) = download(&format!("{RELEASE_URL}/{f}"), &p) {
@@ -43,7 +48,9 @@ fn models_dir() -> Option<PathBuf> {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
 }
 
 fn clip() -> Vec<i16> {
@@ -58,7 +65,11 @@ fn rows(name: &str) -> Vec<Vec<f64>> {
     std::fs::read_to_string(fixture(name))
         .expect("fixture")
         .lines()
-        .map(|l| l.split_whitespace().map(|v| v.parse().expect("number")).collect())
+        .map(|l| {
+            l.split_whitespace()
+                .map(|v| v.parse().expect("number"))
+                .collect()
+        })
         .collect()
 }
 
@@ -89,11 +100,16 @@ fn scores_match_python_per_hop() {
             assert!(d < TOL, "hop {i}: rust {s:?} python {r:?}");
         }
         if i < 5 {
-            assert!(s.iter().all(|&v| v == 0.0), "first 5 predictions are zeroed");
+            assert!(
+                s.iter().all(|&v| v == 0.0),
+                "first 5 predictions are zeroed"
+            );
         }
     }
     let per_hop = t0.elapsed().as_secs_f64() * 1e3 / refs.len() as f64;
-    eprintln!("max |rust - python| = {worst:.2e}; {per_hop:.3} ms per 80 ms hop (2 wake-word models)");
+    eprintln!(
+        "max |rust - python| = {worst:.2e}; {per_hop:.3} ms per 80 ms hop (2 wake-word models)"
+    );
     // the clip contains both phrases
     assert!(refs.iter().any(|r| r[0] > 0.9) && refs.iter().any(|r| r[1] > 0.9));
 }
@@ -148,7 +164,9 @@ fn detector_matches_python() {
         let f: Vec<&str> = l.split_whitespace().collect();
         match f[0] {
             "hop" => ref_hops.push((f[1].parse::<i64>().unwrap(), f[2].parse::<f32>().unwrap())),
-            "region" => ref_regions.push((f[1].parse::<i64>().unwrap(), f[2].parse::<i64>().unwrap())),
+            "region" => {
+                ref_regions.push((f[1].parse::<i64>().unwrap(), f[2].parse::<i64>().unwrap()))
+            }
             _ => panic!("bad fixture line {l}"),
         }
     }
@@ -158,7 +176,10 @@ fn detector_matches_python() {
         assert_eq!(start, rs, "hop completes in the same block");
         assert_eq!(t, start + 480, "480-sample blocks: t = block end");
         worst = worst.max((s - rscore).abs());
-        assert!((s - rscore).abs() < TOL, "block {start}: rust {s} python {rscore}");
+        assert!(
+            (s - rscore).abs() < TOL,
+            "block {start}: rust {s} python {rscore}"
+        );
     }
     assert_eq!(regions, ref_regions);
     eprintln!("detector: max |rust - python| = {worst:.2e}, regions {regions:?}");

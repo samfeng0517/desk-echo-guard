@@ -9,8 +9,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use echoguard_dsp::{Detector, IntegerResampler, FS};
 
-pub use models::{cache_dir, download, feature_model_paths, EMBEDDING_FILE, MELSPEC_FILE, RELEASE_URL};
 pub(crate) use models::reject_tflite;
+pub use models::{
+    cache_dir, download, feature_model_paths, EMBEDDING_FILE, MELSPEC_FILE, RELEASE_URL,
+};
 pub use oww::{warmup_noise, OwwModel, HOP};
 
 const SR: usize = 16_000;
@@ -74,7 +76,12 @@ impl<S: HopScorer> HopDetector<S> {
     }
 
     /// Like `feed`, but also calls `on_hop(t, max_score)` for every hop.
-    pub fn feed_with(&mut self, x: &[f32], start: i64, mut on_hop: impl FnMut(i64, f32)) -> Vec<(i64, i64)> {
+    pub fn feed_with(
+        &mut self,
+        x: &[f32],
+        start: i64,
+        mut on_hop: impl FnMut(i64, f32),
+    ) -> Vec<(i64, i64)> {
         let y = self.down.process(x);
         self.acc.extend_from_slice(&y);
         let mut out = Vec::new();
@@ -130,9 +137,23 @@ pub struct OpenWakeWordDetector {
 
 impl OpenWakeWordDetector {
     /// Python defaults: threshold 0.5, pre 0.9 s, post 0.15 s, refractory 1 s.
-    pub fn new(model_paths: &[PathBuf], threshold: f32, pre_s: f64, post_s: f64, refractory_s: f64) -> Result<Self> {
+    pub fn new(
+        model_paths: &[PathBuf],
+        threshold: f32,
+        pre_s: f64,
+        post_s: f64,
+        refractory_s: f64,
+    ) -> Result<Self> {
         let (mel, emb) = feature_model_paths(model_paths)?;
-        Self::with_feature_models(model_paths, &mel, &emb, threshold, pre_s, post_s, refractory_s)
+        Self::with_feature_models(
+            model_paths,
+            &mel,
+            &emb,
+            threshold,
+            pre_s,
+            post_s,
+            refractory_s,
+        )
     }
 
     /// Like `new`, with explicit feature model paths (no lookup / download).
@@ -164,7 +185,12 @@ impl OpenWakeWordDetector {
     }
 
     /// Like `feed`, also reporting every hop as `(t, max_score)`.
-    pub fn feed_with(&mut self, x: &[f32], start: i64, on_hop: impl FnMut(i64, f32)) -> Vec<(i64, i64)> {
+    pub fn feed_with(
+        &mut self,
+        x: &[f32],
+        start: i64,
+        on_hop: impl FnMut(i64, f32),
+    ) -> Vec<(i64, i64)> {
         self.inner.feed_with(x, start, on_hop)
     }
 }
@@ -188,13 +214,26 @@ mod tests {
         fn score(&mut self, pcm: &[i16]) -> Result<&[f32]> {
             assert_eq!(pcm.len(), HOP);
             self.hops += 1;
-            self.out[0] = if pcm.iter().any(|&v| v > 1000) { 1.0 } else { 0.0 };
+            self.out[0] = if pcm.iter().any(|&v| v > 1000) {
+                1.0
+            } else {
+                0.0
+            };
             Ok(&self.out)
         }
     }
 
     fn det() -> HopDetector<Fake> {
-        HopDetector::new(Fake { out: [0.0], hops: 0 }, 0.5, 0.9, 0.15, 1.0)
+        HopDetector::new(
+            Fake {
+                out: [0.0],
+                hops: 0,
+            },
+            0.5,
+            0.9,
+            0.15,
+            1.0,
+        )
     }
 
     #[test]
@@ -213,7 +252,11 @@ mod tests {
         // one hop per 3840 input samples, t = end of the block that completed it
         assert_eq!(hops.len(), n / 3840);
         for (i, &(t, _, end)) in hops.iter().enumerate() {
-            assert_eq!(end, ((i + 1) * 3840) as i64, "hop {i} completes at a block end");
+            assert_eq!(
+                end,
+                ((i + 1) * 3840) as i64,
+                "hop {i} completes at a block end"
+            );
             assert_eq!(t, end);
         }
         // burst (plus resampler delay) spans several hops: one region only (refractory)
@@ -236,7 +279,11 @@ mod tests {
         let mut regions = Vec::new();
         let mut ts = Vec::new();
         let mut pos = 0usize;
-        for (i, len) in [1500usize, 3000, 4800, 960, 7200].iter().cycle().enumerate() {
+        for (i, len) in [1500usize, 3000, 4800, 960, 7200]
+            .iter()
+            .cycle()
+            .enumerate()
+        {
             if pos >= x.len() {
                 break;
             }

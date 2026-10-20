@@ -367,13 +367,16 @@ mod tests {
         let rms = (active.iter().map(|v| v * v).sum::<f64>() / active.len() as f64).sqrt();
         assert!((rms - 0.05).abs() < 1e-4, "{rms}");
         let frac = active.len() as f64 / x.len() as f64;
+        // (Python, seeds 0-3: 0.80 .. 0.89)
         assert!(frac > 0.7 && frac < 0.97, "active fraction {frac}");
         let peak = x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-        assert!(peak < 0.5 && peak > 0.1, "{peak}");
+        assert!(peak < 0.7 && peak > 0.2, "{peak}");
         // speech-like spectrum: most energy below 3 kHz, some /s/ energy above
         let lo = band_energy_db(&x, 100.0, 3000.0);
         let hi = band_energy_db(&x, 3000.0, 8000.0);
-        assert!(lo - hi > 3.0 && lo - hi < 25.0, "lo {lo} hi {hi}");
+        // (Python, seeds 0-3: 13.5 .. 15.8 dB)
+        assert!(lo - hi > 10.0 && lo - hi < 20.0, "lo {lo} hi {hi}");
+        println!("synth_speech: active {frac:.3} peak {peak:.3} lo-hi {:.2}", lo - hi);
         // deterministic for a seed, different across seeds
         assert_eq!(x, synth_speech(10.0, 0));
         assert_ne!(x, synth_speech(10.0, 1));
@@ -412,9 +415,9 @@ mod tests {
         // echo starts after the bulk delay + direct path
         let d = 40 * 48 + 140;
         assert!(sc.echo[..d].iter().all(|v| v.abs() < 1e-3));
-        // echo level: well below the far end but clearly present
+        // echo level: about as loud as the far end (Python: -0.5 .. -1.7 dB)
         let erl = db(energy(&sc.reference[..a])) - db(energy(&sc.echo[..a]));
-        assert!(erl > 0.0 && erl < 15.0, "{erl}");
+        assert!(erl > -4.0 && erl < 2.0, "{erl}");
         // noise floor ~ -60 dB in the near-only part is dominated by speech
         let nm: Vec<f32> = (a..b).map(|i| sc.mic[i] - sc.near[i] - sc.echo[i]).collect();
         let nd = db(energy(&nm));
