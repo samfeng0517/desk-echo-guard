@@ -1,0 +1,13 @@
+[package]
+name = "echoguard-dsp"
+description = "DSP core of desk-echo-guard: elastic buffers, resampling, Siri-guard notch, NLMS, test signals"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+parking_lot.workspace = true
+realfft.workspace = true
+rand.workspace = true
+rand_distr.workspace = true

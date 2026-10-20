@@ -1,0 +1,10 @@
+[package]
+name = "echoguard-wakeword"
+description = "openWakeWord (Hey Siri model) detector on ONNX Runtime for the Siri guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+echoguard-dsp.workspace = true

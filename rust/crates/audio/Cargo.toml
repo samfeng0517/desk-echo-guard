@@ -1,0 +1,10 @@
+[package]
+name = "echoguard-audio"
+description = "Audio device I/O for desk-echo-guard: WASAPI (Windows) and a simulated backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+parking_lot.workspace = true

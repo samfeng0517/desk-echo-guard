@@ -1,0 +1,15 @@
+[package]
+name = "desk-echo-guard"
+description = "Desk Echo Guard: system-wide echo cancellation for desk speakers + mic on Windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "DeskEchoGuard"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+echoguard-core.workspace = true
+echoguard-audio.workspace = true
