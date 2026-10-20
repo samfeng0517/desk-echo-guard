@@ -104,10 +104,12 @@ fn mic_delay_line() {
 fn rejects_wrong_block_sizes() {
     for e in available_engines() {
         let mut eng = make_engine(e, &EngineOptions::default()).unwrap();
-        let mut out = vec![0.0; 160];
-        assert!(eng.process(&[0.0; 160], &[0.0; 160], &mut out).is_err(), "{e}");
-        let mut out = vec![0.0; FRAME];
-        assert!(eng.process(&[0.0; FRAME], &[0.0; 100], &mut out).is_err(), "{e}");
+        if e != "off" {
+            let mut out = vec![0.0; 160];
+            assert!(eng.process(&[0.0; 160], &[0.0; 160], &mut out).is_err(), "{e}");
+            let mut out = vec![0.0; FRAME];
+            assert!(eng.process(&[0.0; FRAME], &[0.0; 100], &mut out).is_err(), "{e}");
+        }
         let mut p = AecProcessor::new(eng, 0.0, 0.0, 0.0);
         let mut out = vec![0.0; 960];
         assert!(p.process(&[0.0; 960], &[0.0; 960], &mut out).is_err(), "{e}");

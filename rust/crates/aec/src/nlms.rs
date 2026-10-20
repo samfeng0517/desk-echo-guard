@@ -25,6 +25,6 @@ pub type NlmsAec = Resampled<NlmsCore>;
 
 impl NlmsAec {
     pub fn new(filter_ms: u32) -> Self {
-        Resampled::new(NlmsCore(Nlms16k::new(filter_ms)))
+        Resampled::wrap(NlmsCore(Nlms16k::new(filter_ms)))
     }
 }

@@ -12,10 +12,10 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use toml::{Table, Value};
 
-/// Default notch profile; the legacy name "apple" maps to it
+use echoguard_dsp::DEFAULT_PROFILE;
+
+/// The legacy profile name "apple" maps to the default notch profile
 /// (`siri_guard.LEGACY_PROFILES`).
-// TODO(pipeline): use echoguard_dsp::DEFAULT_PROFILE once dsp is a dependency.
-const DEFAULT_PROFILE: &str = "deep-wide";
 const LEGACY_PROFILES: &[(&str, &str)] = &[("apple", DEFAULT_PROFILE)];
 
 /// Every setting of the program; field names, order and defaults are those

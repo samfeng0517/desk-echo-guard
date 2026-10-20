@@ -9,5 +9,13 @@ license.workspace = true
 anyhow.workspace = true
 echoguard-dsp.workspace = true
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls"] }
-ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 log.workspace = true
+
+# Model download.  Windows: SChannel (system certificate store, no C build
+# needed, so the crate also checks from Linux); elsewhere: rustls + the
+# platform verifier.
+[target.'cfg(windows)'.dependencies]
+ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
+
+[target.'cfg(not(windows))'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }

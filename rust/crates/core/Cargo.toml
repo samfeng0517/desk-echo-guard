@@ -13,10 +13,10 @@ serde.workspace = true
 toml.workspace = true
 hound.workspace = true
 serde_json = "1"
-# TODO(pipeline): re-enable once the pipeline / make_guard / self-test land
-# echoguard-dsp.workspace = true
-# echoguard-aec.workspace = true
-# echoguard-wakeword.workspace = true
+echoguard-dsp.workspace = true
+echoguard-aec.workspace = true
+echoguard-wakeword.workspace = true
+ctrlc = "3"
 echoguard-audio.workspace = true
 
 [target.'cfg(windows)'.dependencies.windows]

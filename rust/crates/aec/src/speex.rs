@@ -126,6 +126,6 @@ pub type SpeexAec = Resampled<SpeexCore>;
 
 impl SpeexAec {
     pub fn new(filter_ms: u32, preprocess: bool) -> Result<Self> {
-        Ok(Resampled::new(SpeexCore::new(filter_ms, preprocess)?))
+        Ok(Resampled::wrap(SpeexCore::new(filter_ms, preprocess)?))
     }
 }

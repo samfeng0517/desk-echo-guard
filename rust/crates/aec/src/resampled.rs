@@ -23,7 +23,7 @@ pub struct Resampled<E> {
 impl<E: LowRateEngine> Resampled<E> {
     pub const RATE: usize = 16_000;
 
-    pub fn new(engine: E) -> Self {
+    pub fn wrap(engine: E) -> Self {
         let k = (FS / Self::RATE) as i32;
         Self {
             engine,

@@ -82,7 +82,7 @@ pub fn feature_model_paths(model_paths: &[PathBuf]) -> Result<(PathBuf, PathBuf)
 
 /// Download `url` to `dest` (via a temporary file, so an interrupted
 /// download never leaves a truncated model behind).  Honours HTTPS_PROXY and
-/// the OS certificate store.
+/// the OS certificate store (SChannel on Windows, rustls elsewhere).
 pub fn download(url: &str, dest: &Path) -> Result<()> {
     if let Some(d) = dest.parent() {
         std::fs::create_dir_all(d).with_context(|| format!("無法建立資料夾 {}", d.display()))?;
@@ -90,6 +90,11 @@ pub fn download(url: &str, dest: &Path) -> Result<()> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .tls_config(
             ureq::tls::TlsConfig::builder()
+                .provider(if cfg!(windows) {
+                    ureq::tls::TlsProvider::NativeTls
+                } else {
+                    ureq::tls::TlsProvider::Rustls
+                })
                 .root_certs(ureq::tls::RootCerts::PlatformVerifier)
                 .build(),
         )
