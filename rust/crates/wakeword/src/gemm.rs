@@ -5,66 +5,119 @@
 
 /// Rows of A per micro-tile.
 pub const MR: usize = 6;
-/// Columns of B per micro-tile.
+/// Columns of B per (full) panel; the last panel may be NR / 2 wide.
 pub const NR: usize = 16;
+const NH: usize = NR / 2;
 
 pub fn round_up(x: usize, m: usize) -> usize {
     x.div_ceil(m) * m
 }
 
-/// `c[mp x np] = a[mp x k] * b` (row-major A and C), `b` packed by
-/// [`PackedB`] (`k x np`), `mp % MR == 0`, `np % NR == 0`.
-pub fn gemm(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: usize, np: usize) {
-    assert!(mp.is_multiple_of(MR) && np.is_multiple_of(NR));
-    assert!(a.len() >= mp * k && b.len() >= k * np && c.len() >= mp * np);
+/// `c[m x np] = a[m x k] * b` (row-major A and C, `b` packed by
+/// [`PackedB`]); columns `b.n..b.np` of C come out as zero.
+pub fn gemm(a: &[f32], m: usize, b: &PackedB, c: &mut [f32]) {
+    assert!(a.len() >= m * b.k && c.len() >= m * b.np);
     #[cfg(target_arch = "x86_64")]
     if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
     {
         // SAFETY: the CPU supports AVX2 and FMA (checked just above).
-        unsafe { gemm_avx2(a, b, c, mp, k, np) };
+        unsafe { gemm_avx2(a, m, b, c) };
         return;
     }
-    kernel::<{ cfg!(target_feature = "fma") }>(a, b, c, mp, k, np);
+    driver::<{ cfg!(target_feature = "fma") }>(a, m, b, c);
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,fma")]
-fn gemm_avx2(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: usize, np: usize) {
-    kernel::<true>(a, b, c, mp, k, np);
+fn gemm_avx2(a: &[f32], m: usize, b: &PackedB, c: &mut [f32]) {
+    driver::<true>(a, m, b, c);
 }
 
 #[inline(always)]
-fn kernel<const FMA: bool>(a: &[f32], b: &[f32], c: &mut [f32], mp: usize, k: usize, np: usize) {
+fn driver<const FMA: bool>(a: &[f32], m: usize, b: &PackedB, c: &mut [f32]) {
+    let (k, np) = (b.k, b.np);
     if k == 0 {
-        c[..mp * np].fill(0.0);
+        c[..m * np].fill(0.0);
         return;
     }
-    for (it, arows) in a[..mp * k].chunks_exact(MR * k).enumerate() {
-        let rows: [&[f32]; MR] = std::array::from_fn(|r| &arows[r * k..(r + 1) * k]);
-        for (jt, bpanel) in b[..k * np].chunks_exact(k * NR).enumerate() {
-            let mut acc = [[0.0f32; NR]; MR];
-            for (kk, bv) in bpanel.chunks_exact(NR).enumerate() {
-                for r in 0..MR {
-                    let x = rows[r][kk];
-                    for t in 0..NR {
-                        acc[r][t] = if FMA {
-                            x.mul_add(bv[t], acc[r][t])
-                        } else {
-                            acc[r][t] + x * bv[t]
-                        };
-                    }
-                }
-            }
-            for (r, row) in acc.iter().enumerate() {
-                let off = (it * MR + r) * np + jt * NR;
-                c[off..off + NR].copy_from_slice(row);
-            }
+    let full = np / NR;
+    // full-width panels: 6 x 16 tiles (12 accumulators), smaller at the end
+    let mut i = 0;
+    while i < m {
+        let left = m - i;
+        i += if left >= MR {
+            block::<FMA, MR, NR>(a, i, b, 0..full, c)
+        } else if left >= 4 {
+            block::<FMA, 4, NR>(a, i, b, 0..full, c)
+        } else if left >= 2 {
+            block::<FMA, 2, NR>(a, i, b, 0..full, c)
+        } else {
+            block::<FMA, 1, NR>(a, i, b, 0..full, c)
+        };
+    }
+    // half-width last panel: 12 x 8 tiles keep as many accumulators busy
+    if np % NR != 0 {
+        let mut i = 0;
+        while i < m {
+            let left = m - i;
+            i += if left >= 2 * MR {
+                block::<FMA, { 2 * MR }, NH>(a, i, b, full..full + 1, c)
+            } else if left >= MR {
+                block::<FMA, MR, NH>(a, i, b, full..full + 1, c)
+            } else if left >= 2 {
+                block::<FMA, 2, NH>(a, i, b, full..full + 1, c)
+            } else {
+                block::<FMA, 1, NH>(a, i, b, full..full + 1, c)
+            };
         }
     }
 }
 
-/// A constant right operand (`k x n`), packed into NR-column panels
-/// (zero-padded to `np` columns).
+/// Rows `i..i + M` of C for panels `panels` (all of width N); returns M.
+#[inline(always)]
+fn block<const FMA: bool, const M: usize, const N: usize>(
+    a: &[f32],
+    i: usize,
+    b: &PackedB,
+    panels: std::ops::Range<usize>,
+    c: &mut [f32],
+) -> usize {
+    let (k, np) = (b.k, b.np);
+    let ar: [&[f32]; M] = std::array::from_fn(|r| &a[(i + r) * k..(i + r + 1) * k]);
+    for jt in panels {
+        let p0 = jt * k * NR;
+        let acc = tile::<FMA, M, N>(&ar, &b.data[p0..p0 + k * N]);
+        for (r, row) in acc.iter().enumerate() {
+            let off = (i + r) * np + jt * NR;
+            c[off..off + N].copy_from_slice(row);
+        }
+    }
+    M
+}
+
+#[inline(always)]
+fn tile<const FMA: bool, const M: usize, const N: usize>(
+    ar: &[&[f32]; M],
+    panel: &[f32],
+) -> [[f32; N]; M] {
+    let mut acc = [[0.0f32; N]; M];
+    for (kk, bv) in panel.chunks_exact(N).enumerate() {
+        for r in 0..M {
+            let x = ar[r][kk];
+            for t in 0..N {
+                acc[r][t] = if FMA {
+                    x.mul_add(bv[t], acc[r][t])
+                } else {
+                    acc[r][t] + x * bv[t]
+                };
+            }
+        }
+    }
+    acc
+}
+
+/// A constant right operand (`k x n`), packed into NR-column panels (the
+/// last one NR / 2 wide when that suffices), zero-padded to `np` columns.
 #[derive(Clone, Debug)]
 pub struct PackedB {
     pub k: usize,
@@ -81,11 +134,14 @@ impl PackedB {
 
     /// Element `(kk, j)` is `f(kk, j)`.
     pub fn from_fn(k: usize, n: usize, f: impl Fn(usize, usize) -> f32) -> Self {
-        let np = round_up(n.max(1), NR);
+        let np = round_up(n.max(1), NH);
+        let full = np / NR;
         let mut data = vec![0.0; k * np];
         for kk in 0..k {
             for j in 0..n {
-                data[((j / NR) * k + kk) * NR + j % NR] = f(kk, j);
+                let (jt, t) = (j / NR, j % NR);
+                let w = if jt < full { NR } else { NH };
+                data[jt * k * NR + kk * w + t] = f(kk, j);
             }
         }
         Self { k, n, np, data }
@@ -94,12 +150,9 @@ impl PackedB {
 
 /// `a[m x k] * b` for a packed right operand; returns `m x n`.
 pub fn matmul_b(a: &[f32], m: usize, b: &PackedB, scratch: &mut Scratch) -> Vec<f32> {
-    let (k, n, np) = (b.k, b.n, b.np);
-    let mp = round_up(m.max(1), MR);
-    let (ap, c) = scratch.bufs(mp * k, mp * np);
-    ap[..m * k].copy_from_slice(&a[..m * k]);
-    ap[m * k..].fill(0.0);
-    gemm(ap, &b.data, c, mp, k, np);
+    let (n, np) = (b.n, b.np);
+    let c = scratch.c(m * np);
+    gemm(a, m, b, c);
     let mut out = Vec::with_capacity(m * n);
     for row in c.chunks_exact(np).take(m) {
         out.extend_from_slice(&row[..n]);
@@ -116,6 +169,14 @@ pub struct Scratch {
 }
 
 impl Scratch {
+    /// A result buffer of `nc` values (contents unspecified).
+    pub fn c(&mut self, nc: usize) -> &mut [f32] {
+        if self.c.len() < nc {
+            self.c.resize(nc, 0.0);
+        }
+        &mut self.c[..nc]
+    }
+
     /// An A buffer of `na` values and a result buffer of `nc` (contents
     /// unspecified).
     pub fn bufs(&mut self, na: usize, nc: usize) -> (&mut [f32], &mut [f32]) {
@@ -171,6 +232,8 @@ mod tests {
             (257, 512, 9),
             (2, 300, 40),
             (3, 0, 4),
+            (7, 5, 24),
+            (12, 33, 72),
         ] {
             let a: Vec<f32> = (0..m * k)
                 .map(|i| ((i * 37 % 101) as f32 - 50.0) / 25.0)
@@ -193,17 +256,14 @@ mod tests {
     #[test]
     #[ignore = "benchmark"]
     fn bench_gemm() {
-        for &(m, k, n) in &[(2368, 72, 24), (544, 144, 48), (48, 288, 96), (16, 512, 257)] {
+        for &(m, k, n) in &[(2368, 72, 24), (544, 144, 48), (48, 288, 96), (8, 512, 257), (1, 1536, 128)] {
             let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32).collect();
             let pb = PackedB::from_fn(k, n, |i, j| ((i + j) % 5) as f32);
-            let mp = round_up(m, MR);
-            let mut a2 = a.clone();
-            a2.resize(mp * k, 0.0);
-            let mut c = vec![0.0; mp * pb.np];
+            let mut c = vec![0.0; m * pb.np];
             let reps = 200;
             let t = std::time::Instant::now();
             for _ in 0..reps {
-                gemm(&a2, &pb.data, &mut c, mp, k, pb.np);
+                gemm(&a, m, &pb, &mut c);
             }
             let s = t.elapsed().as_secs_f64() / reps as f64;
             eprintln!(

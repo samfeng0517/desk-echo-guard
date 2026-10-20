@@ -3,7 +3,7 @@
 
 mod gemm;
 mod models;
-pub mod nn;
+mod nn;
 mod onnx;
 mod oww;
 

@@ -370,7 +370,7 @@ impl Model {
                         "Conv {} kernel_shape 與權重不符",
                         n.name
                     );
-                    let k = ic * win.kernel[0] * win.kernel[1];
+                    let taps = win.kernel[0] * win.kernel[1];
                     let bias = match konst(2) {
                         Some(b) => {
                             ensure!(b.len() == oc, "Conv bias 長度錯誤");
@@ -383,13 +383,7 @@ impl Model {
                         win,
                         oc,
                         ic,
-                        w: {
-                            let (wv, kk2) = (w.as_f32()?, win.kernel[0] * win.kernel[1]);
-                            PackedB::from_fn(k, oc, |r, o| {
-                                let (tap, ci) = (r / ic, r % ic);
-                                wv[(o * ic + ci) * kk2 + tap]
-                            })
-                        },
+                        w: pack_conv_weights(w.as_f32()?, oc, ic, taps),
                         bias,
                     }
                 }
@@ -543,7 +537,6 @@ impl Model {
                 })
                 .collect::<Result<_>>()
                 .with_context(|| st.name.clone())?;
-            let t0 = std::time::Instant::now();
             let y = match owned {
                 Some(mut t) => {
                     if eval_inplace(&st.op, &mut t, &ins).with_context(|| st.name.clone())? {
@@ -555,11 +548,6 @@ impl Model {
                 }
                 None => eval(&st.op, &ins, scratch).with_context(|| st.name.clone())?,
             };
-            PROF.with(|p| {
-                let mut p = p.borrow_mut();
-                let k = format!("{:?}", std::mem::discriminant(&st.op)) + &st.name[st.name.find('（').unwrap_or(0)..];
-                *p.entry(k).or_insert(0.0) += t0.elapsed().as_secs_f64();
-            });
             values[st.out] = Some(Arc::new(y));
             for &f in &st.free {
                 if let Some(Ok(Tensor {
@@ -579,18 +567,6 @@ impl Model {
         self.values.clear();
         Ok(out)
     }
-}
-
-thread_local! {
-    pub static PROF: std::cell::RefCell<HashMap<String, f64>> = Default::default();
-}
-pub fn dump_prof() {
-    PROF.with(|p| {
-        let mut v: Vec<_> = p.borrow().iter().map(|(k, v)| (*v, k.clone())).collect();
-        v.sort_by(|a, b| b.0.total_cmp(&a.0));
-        for (t, k) in v { eprintln!("{:9.1} ms {k}", t * 1e3); }
-        p.borrow_mut().clear();
-    });
 }
 
 fn transpose2(a: &[f32], r: usize, c: usize) -> Vec<f32> {
@@ -1176,6 +1152,15 @@ fn reduce(x: &Tensor, kind: Red, axes: &[i64], keepdims: bool) -> Result<Tensor>
     Ok(Tensor::f32(shape, out))
 }
 
+/// ONNX conv weights `[oc, ic, taps]` as a packed `(taps * ic) x oc` GEMM
+/// operand with rows ordered (tap, ci), matching the channels-last im2col.
+fn pack_conv_weights(w: &[f32], oc: usize, ic: usize, taps: usize) -> PackedB {
+    PackedB::from_fn(taps * ic, oc, |r, o| {
+        let (tap, ci) = (r / ic, r % ic);
+        w[(o * ic + ci) * taps + tap]
+    })
+}
+
 /// Data of a logical `[N, C, spatial..]` tensor in channels-last order.
 fn channels_last(x: &Tensor) -> Result<std::borrow::Cow<'_, [f32]>> {
     let v = x.as_f32()?;
@@ -1231,14 +1216,12 @@ fn conv(
     let [sh, sw] = win.strides;
     let [dh, dw] = win.dilations;
     let n = oh * ow;
-    let mp = gemm::round_up(n.max(1), gemm::MR);
     let k = kh * kw * c;
     ensure!(k == w.k && oc == w.n, "Conv 權重形狀不符");
     let xl = channels_last(x)?;
     let mut out = scratch.take(nb * n * oc);
     for xb in xl.chunks_exact((h * wd * c).max(1)).take(nb) {
-        let t0 = std::time::Instant::now();
-        let (a, cbuf) = scratch.bufs(mp * k, mp * w.np);
+        let (a, cbuf) = scratch.bufs(n * k, n * w.np);
         // im2col: row p = output position, (ky, kx, ci) taps
         for oy in 0..oh {
             for ox in 0..ow {
@@ -1269,15 +1252,7 @@ fn conv(
                 }
             }
         }
-        a[n * k..].fill(0.0);
-        let t1 = std::time::Instant::now();
-        gemm::gemm(a, &w.data, cbuf, mp, k, w.np);
-        let t2 = std::time::Instant::now();
-        PROF.with(|p| {
-            let mut p = p.borrow_mut();
-            *p.entry("conv.im2col".into()).or_insert(0.0) += (t1 - t0).as_secs_f64();
-            *p.entry("conv.gemm".into()).or_insert(0.0) += (t2 - t1).as_secs_f64();
-        });
+        gemm::gemm(a, n, w, cbuf);
         for row in cbuf.chunks_exact(w.np).take(n) {
             out.extend(row[..oc].iter().zip(bias).map(|(v, b)| v + b));
         }
@@ -1518,7 +1493,7 @@ mod tests {
                 &win,
                 oc,
                 c,
-                &PackedA::new(&wt, oc, c * kh * kw),
+                &pack_conv_weights(&wt, oc, c, kh * kw),
                 &vec![0.5; oc],
                 &mut s,
             )
@@ -1536,6 +1511,8 @@ mod tests {
                 [pt, pl],
                 [oh, ow],
             );
+            assert!(y.nhwc);
+            let y = to_nchw(&y).unwrap();
             for (g, w) in y.as_f32().unwrap().iter().zip(&want) {
                 assert!((g - (w + 0.5)).abs() < 1e-4, "{g} vs {w}");
             }
