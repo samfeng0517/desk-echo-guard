@@ -40,6 +40,7 @@ pub fn run_gui(opts: GuiOptions) -> Result<()> {
     // TODO(wiring): single instance (winutil::claim_single_instance): if
     // another copy runs, show "Desk Echo Guard 已經在執行中…" and return
     // (silently with --autostart).  TODO(wiring): winutil::refresh_autostart().
+    select_renderer();
     let ui = AppWindow::new()?;
     ui.set_font_family(font_family().into());
     let ctrl = Controller::install(
@@ -61,13 +62,41 @@ pub fn run_gui(opts: GuiOptions) -> Result<()> {
     Ok(())
 }
 
-/// Called every time the window becomes visible: Mica on Windows 11.
+/// Renderer choice.  The software renderer (partial repaints) is the
+/// default: measured under Xvfb it needs ~3 % CPU and ~45 MB RSS while the
+/// meters move, against ~40 % / ~155 MB for the OpenGL (femtovg) renderer.
+/// It cannot draw a transparent window, so Mica needs the GPU renderer:
+/// `DEG_MICA=1` opts in.  `SLINT_BACKEND` still overrides both.
+fn use_gpu_renderer() -> bool {
+    std::env::var_os("DEG_MICA").is_some_and(|v| v != "0")
+}
+
+fn select_renderer() {
+    if std::env::var_os("SLINT_BACKEND").is_some() {
+        return;
+    }
+    let renderer = if use_gpu_renderer() {
+        "femtovg"
+    } else {
+        "software"
+    };
+    if let Err(e) = slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .renderer_name(renderer.into())
+        .select()
+    {
+        log::warn!("renderer {renderer}: {e}");
+    }
+}
+
+/// Called every time the window becomes visible: Mica on Windows 11
+/// (only with the GPU renderer, see [`use_gpu_renderer`]).
 pub fn window_shown(ui: &AppWindow) {
     #[cfg(windows)]
     {
         use std::cell::Cell;
         thread_local!(static DONE: Cell<bool> = const { Cell::new(false) });
-        if DONE.with(|d| d.replace(true)) || std::env::var_os("DEG_NO_MICA").is_some() {
+        if DONE.with(|d| d.replace(true)) || !use_gpu_renderer() {
             return;
         }
         let handle = ui.window().window_handle();

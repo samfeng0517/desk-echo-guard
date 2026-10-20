@@ -115,10 +115,30 @@ struct Role {
     renamed: &'static str,
 }
 const ROLES: [Role; 4] = [
-    Role { key: "out", kind: DeviceKind::Speaker, original: "CABLE Input", renamed: "EchoGuard 內部輸出（勿選）" },
-    Role { key: "virtual_mic", kind: DeviceKind::Mic, original: "CABLE Output", renamed: "回聲消除麥克風" },
-    Role { key: "call_speaker", kind: DeviceKind::Speaker, original: "CABLE-A Input", renamed: "Siri防護喇叭" },
-    Role { key: "call_in", kind: DeviceKind::Mic, original: "CABLE-A Output", renamed: "EchoGuard 內部輸入（勿選）" },
+    Role {
+        key: "out",
+        kind: DeviceKind::Speaker,
+        original: "CABLE Input",
+        renamed: "EchoGuard 內部輸出（勿選）",
+    },
+    Role {
+        key: "virtual_mic",
+        kind: DeviceKind::Mic,
+        original: "CABLE Output",
+        renamed: "回聲消除麥克風",
+    },
+    Role {
+        key: "call_speaker",
+        kind: DeviceKind::Speaker,
+        original: "CABLE-A Input",
+        renamed: "Siri防護喇叭",
+    },
+    Role {
+        key: "call_in",
+        kind: DeviceKind::Mic,
+        original: "CABLE-A Output",
+        renamed: "EchoGuard 內部輸入（勿選）",
+    },
 ];
 
 fn desc_is(name: &str, desc: &str) -> bool {
@@ -136,7 +156,10 @@ fn role_of(name: &str, kind: Option<DeviceKind>) -> Option<&'static Role> {
 fn find(devices: &[DeviceInfo], role: &Role) -> Option<String> {
     devices
         .iter()
-        .find(|d| d.kind == role.kind && role_of(&d.name, Some(role.kind)).is_some_and(|r| r.key == role.key))
+        .find(|d| {
+            d.kind == role.kind
+                && role_of(&d.name, Some(role.kind)).is_some_and(|r| r.key == role.key)
+        })
         .map(|d| d.name.clone())
 }
 
@@ -149,14 +172,22 @@ impl Engine for MockEngine {
         if !self.opts.cable {
             bail!("no speaker matches \"CABLE Input\". Available:\n  喇叭 (Realtek(R) Audio)");
         }
-        let engine = if s.engine == "auto" { "webrtc".to_string() } else { s.engine.clone() };
+        let engine = if s.engine == "auto" {
+            "webrtc".to_string()
+        } else {
+            s.engine.clone()
+        };
         (self.log)(format!(
             "mic={} speaker={} out={} engine={engine}",
             s.mic.as_deref().unwrap_or("(default)"),
             s.speaker.as_deref().unwrap_or("(default)"),
             s.out
         ));
-        *self.run.lock() = Some(Run { since: Instant::now(), engine, siri: s.siri_guard });
+        *self.run.lock() = Some(Run {
+            since: Instant::now(),
+            engine,
+            siri: s.siri_guard,
+        });
         Ok(())
     }
 
@@ -208,7 +239,11 @@ impl Engine for MockEngine {
             return 0.2;
         }
         // every ~20th poll reports clipping
-        if self.peak_seq.fetch_add(1, Ordering::Relaxed) % 20 == 0 {
+        if self
+            .peak_seq
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(20)
+        {
             0.97
         } else {
             0.5
@@ -264,10 +299,17 @@ impl Engine for MockEngine {
             ROLES.iter().map(|r| (r.key, find(devices, r))).collect();
         let present: Vec<&Role> = ROLES.iter().filter(|r| names[r.key].is_some()).collect();
         let renamed = !present.is_empty()
-            && present.iter().all(|r| names[r.key].as_deref().is_some_and(|n| desc_is(n, r.renamed)));
+            && present.iter().all(|r| {
+                names[r.key]
+                    .as_deref()
+                    .is_some_and(|n| desc_is(n, r.renamed))
+            });
         let unused = devices
             .iter()
-            .filter(|d| d.name.to_lowercase().contains("vb-audio") && role_of(&d.name, Some(d.kind)).is_none())
+            .filter(|d| {
+                d.name.to_lowercase().contains("vb-audio")
+                    && role_of(&d.name, Some(d.kind)).is_none()
+            })
             .map(|d| d.name.clone())
             .collect();
         CableStatus {
@@ -346,7 +388,8 @@ impl Engine for MockEngine {
     }
 
     fn load_settings(&self, path: &Path) -> Result<Settings> {
-        let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         let table: toml::Table = text.parse()?;
         // flatten [sections], accept '-' in keys, siri_model may be a string
         let mut flat = toml::Table::new();
@@ -362,7 +405,10 @@ impl Engine for MockEngine {
         }
         walk(&table, &mut flat);
         if let Some(toml::Value::String(s)) = flat.get("siri_model").cloned() {
-            flat.insert("siri_model".into(), toml::Value::Array(vec![toml::Value::String(s)]));
+            flat.insert(
+                "siri_model".into(),
+                toml::Value::Array(vec![toml::Value::String(s)]),
+            );
         }
         Ok(toml::Value::Table(flat).try_into()?)
     }
@@ -371,7 +417,10 @@ impl Engine for MockEngine {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let text = format!("# Desk Echo Guard settings (saved by the GUI)\n{}", toml::to_string(s)?);
+        let text = format!(
+            "# Desk Echo Guard settings (saved by the GUI)\n{}",
+            toml::to_string(s)?
+        );
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;
         std::fs::rename(&tmp, path)?;

@@ -18,7 +18,7 @@ export component DevicesPage inherits Page {
         description: "你實際說話用的麥克風";
         tip: Tips.mic;
         ComboBox {
-            width: 280px;
+            width: 300px;
             model: AppState.mic-devices;
             current-index <=> Cfg.mic-index;
             selected => {
@@ -32,7 +32,7 @@ export component DevicesPage inherits Page {
         description: "你聽對方聲音用的喇叭；程式會擷取它正在播的聲音來消除回音";
         tip: Tips.speaker;
         ComboBox {
-            width: 280px;
+            width: 300px;
             model: AppState.speaker-devices;
             current-index <=> Cfg.speaker-index;
             selected => {

@@ -7,6 +7,7 @@
 //! so closing the window quits.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))] // only the Windows tray sends these
 pub enum TrayCmd {
     Show,
     Toggle,
@@ -25,8 +26,14 @@ pub fn icon_rgba() -> Option<(Vec<u8>, u32, u32)> {
     let px = (info.width * info.height) as usize;
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf[..px * 4].to_vec(),
-        png::ColorType::Rgb => buf[..px * 3].chunks(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => buf[..px * 2].chunks(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
+        png::ColorType::Rgb => buf[..px * 3]
+            .chunks(3)
+            .flat_map(|c| [c[0], c[1], c[2], 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => buf[..px * 2]
+            .chunks(2)
+            .flat_map(|c| [c[0], c[0], c[0], c[1]])
+            .collect(),
         png::ColorType::Grayscale => buf[..px].iter().flat_map(|&g| [g, g, g, 255]).collect(),
         png::ColorType::Indexed => return None, // EXPAND turns this into RGB(A)
     };
@@ -46,7 +53,9 @@ mod imp {
     }
 
     impl Tray {
-        pub fn new(on_cmd: impl Fn(TrayCmd) + Send + Sync + Clone + 'static) -> Result<Option<Self>> {
+        pub fn new(
+            on_cmd: impl Fn(TrayCmd) + Send + Sync + Clone + 'static,
+        ) -> Result<Option<Self>> {
             let show = MenuItem::new("顯示視窗", true, None);
             let toggle = MenuItem::new("開始", true, None);
             let quit = MenuItem::new("結束", true, None);
@@ -60,7 +69,8 @@ mod imp {
                 .with_icon(Icon::from_rgba(rgba, w, h)?)
                 .build()?;
 
-            let (show_id, toggle_id, quit_id) = (show.id().clone(), toggle.id().clone(), quit.id().clone());
+            let (show_id, toggle_id, quit_id) =
+                (show.id().clone(), toggle.id().clone(), quit.id().clone());
             let cb = on_cmd.clone();
             MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
                 if e.id == show_id {
@@ -72,7 +82,11 @@ mod imp {
                 }
             }));
             TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
-                if let TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = e {
+                if let TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
+                } = e
+                {
                     on_cmd(TrayCmd::Show);
                 }
             }));
@@ -81,13 +95,19 @@ mod imp {
 
         pub fn set_running(&self, running: bool) {
             self.toggle.set_text(if running { "停止" } else { "開始" });
-            let tip = if running { "Desk Echo Guard（運作中）" } else { "Desk Echo Guard（已停止）" };
+            let tip = if running {
+                "Desk Echo Guard（運作中）"
+            } else {
+                "Desk Echo Guard（已停止）"
+            };
             let _ = self.icon.set_tooltip(Some(tip));
         }
 
         /// Balloon / toast from the tray icon (Shell_NotifyIcon NIF_INFO).
         pub fn notify(&self, title: &str, message: &str) {
-            use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW};
+            use windows_sys::Win32::UI::Shell::{
+                Shell_NotifyIconW, NIF_INFO, NIIF_INFO, NIM_MODIFY, NOTIFYICONDATAW,
+            };
             fn copy_wide(dst: &mut [u16], s: &str) {
                 let w: Vec<u16> = s.encode_utf16().take(dst.len() - 1).collect();
                 dst[..w.len()].copy_from_slice(&w);
@@ -125,7 +145,9 @@ mod imp {
     pub struct Tray;
 
     impl Tray {
-        pub fn new(_on_cmd: impl Fn(TrayCmd) + Send + Sync + Clone + 'static) -> anyhow::Result<Option<Self>> {
+        pub fn new(
+            _on_cmd: impl Fn(TrayCmd) + Send + Sync + Clone + 'static,
+        ) -> anyhow::Result<Option<Self>> {
             Ok(None)
         }
         pub fn set_running(&self, _running: bool) {}

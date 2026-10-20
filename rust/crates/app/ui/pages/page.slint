@@ -10,8 +10,8 @@ export component Page inherits Rectangle {
     in property <[InfoBarData]> bars;
 
     sv := ScrollView {
-        viewport-width: sv.visible-width;
-        viewport-height: lay.preferred-height;
+        content-width: sv.visible-width;
+        content-height: lay.preferred-height;
 
         lay := VerticalLayout {
             width: sv.visible-width;
@@ -24,7 +24,6 @@ export component Page inherits Rectangle {
             alignment: start;
 
             HorizontalLayout {
-                alignment: start;
                 VerticalLayout {
                     max-width: Theme.content-max-width;
                     horizontal-stretch: 1;

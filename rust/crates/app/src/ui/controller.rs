@@ -135,7 +135,14 @@ fn s(x: impl Into<SharedString>) -> SharedString {
     x.into()
 }
 
-fn bar(severity: Severity, title: &str, message: &str, action: &str, id: &str, tip: &str) -> InfoBarData {
+fn bar(
+    severity: Severity,
+    title: &str,
+    message: &str,
+    action: &str,
+    id: &str,
+    tip: &str,
+) -> InfoBarData {
     InfoBarData {
         severity,
         title: s(title),
@@ -208,9 +215,7 @@ impl Controller {
 
         ctrl.refresh_devices();
         ctrl.write_cfg();
-        ctrl.refresh_diag(None);
-        ctrl.refresh_bars();
-        ctrl.set_poll(false);
+        ctrl.after_run_change();
 
         if opts.use_tray {
             // tray-icon wants a running event loop on this thread
@@ -226,11 +231,12 @@ impl Controller {
         }
         if opts.autostart {
             let weak = Rc::downgrade(&ctrl);
-            ctrl.retry_timer.start(TimerMode::SingleShot, Duration::from_secs(1), move || {
-                if let Some(c) = weak.upgrade() {
-                    c.start(StartReason::Auto(1));
-                }
-            });
+            ctrl.retry_timer
+                .start(TimerMode::SingleShot, Duration::from_secs(1), move || {
+                    if let Some(c) = weak.upgrade() {
+                        c.start(StartReason::Auto(1));
+                    }
+                });
         }
         ctrl
     }
@@ -272,7 +278,13 @@ impl Controller {
         app.on_set_autostart(|on| with_ctrl(|c| c.set_autostart(on)));
         app.on_copy_log(|| {
             with_ctrl(|c| {
-                let text = c.st.borrow().log.iter().cloned().collect::<Vec<_>>().join("\n");
+                let text =
+                    c.st.borrow()
+                        .log
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("\n");
                 c.copy_quiet(&text, "已複製執行記錄");
             })
         });
@@ -289,7 +301,8 @@ impl Controller {
         });
         app.on_pick_model(|| with_ctrl(|c| c.pick_model()));
         app.on_pick_debug_folder(|| with_ctrl(|c| c.pick_debug_folder()));
-        ui.global::<Cfg>().on_changed(|| with_ctrl(|c| c.read_cfg()));
+        ui.global::<Cfg>()
+            .on_changed(|| with_ctrl(|c| c.read_cfg()));
 
         ui.window().on_close_requested(|| {
             let mut resp = slint::CloseRequestResponse::HideWindow;
@@ -400,9 +413,10 @@ impl Controller {
     }
 
     fn save_soon(&self) {
-        self.save_timer.start(TimerMode::SingleShot, SAVE_DELAY, || {
-            with_ctrl(|c| c.save_now())
-        });
+        self.save_timer
+            .start(TimerMode::SingleShot, SAVE_DELAY, || {
+                with_ctrl(|c| c.save_now())
+            });
     }
 
     /// Settings -> Cfg (all widgets).
@@ -421,7 +435,11 @@ impl Controller {
         cfg.set_gain_db(s_.output_gain_db as f32);
         cfg.set_siri_guard(s_.siri_guard);
         cfg.set_siri_mode_index(idx(&MODES, &s_.siri_mode));
-        let profile = if s_.siri_profile == "apple" { "deep-wide" } else { &s_.siri_profile };
+        let profile = if s_.siri_profile == "apple" {
+            "deep-wide"
+        } else {
+            &s_.siri_profile
+        };
         cfg.set_siri_profile_index(idx(&PROFILES, profile));
         cfg.set_siri_model(s(s_.siri_model.first().cloned().unwrap_or_default()));
         cfg.set_siri_threshold(s_.siri_threshold as f32);
@@ -439,9 +457,13 @@ impl Controller {
         };
         cfg.set_mic_index(pos_opt(&st.mic_opts, &st.settings.mic));
         cfg.set_speaker_index(pos_opt(&st.spk_opts, &st.settings.speaker));
-        let out = self.engine.cable_resolve(&st.settings.out, DeviceKind::Speaker, &st.devices);
+        let out = self
+            .engine
+            .cable_resolve(&st.settings.out, DeviceKind::Speaker, &st.devices);
         cfg.set_out_index(st.out_opts.iter().position(|o| *o == out).unwrap_or(0) as i32);
-        let call = self.engine.cable_resolve(&st.settings.call_in, DeviceKind::Mic, &st.devices);
+        let call = self
+            .engine
+            .cable_resolve(&st.settings.call_in, DeviceKind::Mic, &st.devices);
         cfg.set_call_in_index(st.call_opts.iter().position(|o| *o == call).unwrap_or(0) as i32);
     }
 
@@ -453,7 +475,10 @@ impl Controller {
         let old = st.settings.clone();
         let mut n = old.clone();
         let pick = |list: &[&str], i: i32, fallback: &str| {
-            list.get(i.max(0) as usize).copied().unwrap_or(fallback).to_string()
+            list.get(i.max(0) as usize)
+                .copied()
+                .unwrap_or(fallback)
+                .to_string()
         };
         n.engine = pick(&ENGINES, cfg.get_engine_index(), "auto");
         n.noise_suppression = cfg.get_noise_suppression();
@@ -466,7 +491,11 @@ impl Controller {
         n.siri_mode = pick(&MODES, cfg.get_siri_mode_index(), "always");
         n.siri_profile = pick(&PROFILES, cfg.get_siri_profile_index(), "deep-wide");
         let model = cfg.get_siri_model().to_string();
-        n.siri_model = if model.is_empty() { vec![] } else { vec![model] };
+        n.siri_model = if model.is_empty() {
+            vec![]
+        } else {
+            vec![model]
+        };
         n.siri_threshold = (cfg.get_siri_threshold() as f64 * 100.0).round() / 100.0;
         let dbg = cfg.get_debug_wav().to_string();
         n.debug_wav = (!dbg.is_empty()).then_some(dbg);
@@ -479,12 +508,20 @@ impl Controller {
         // VB-Cable endpoints: keep the configured (rename-proof) name when
         // the same device is still selected
         if let Some(o) = st.out_opts.get(cfg.get_out_index().max(0) as usize) {
-            if *o != self.engine.cable_resolve(&old.out, DeviceKind::Speaker, &st.devices) {
+            if *o
+                != self
+                    .engine
+                    .cable_resolve(&old.out, DeviceKind::Speaker, &st.devices)
+            {
                 n.out = o.clone();
             }
         }
         if let Some(o) = st.call_opts.get(cfg.get_call_in_index().max(0) as usize) {
-            if *o != self.engine.cable_resolve(&old.call_in, DeviceKind::Mic, &st.devices) {
+            if *o
+                != self
+                    .engine
+                    .cable_resolve(&old.call_in, DeviceKind::Mic, &st.devices)
+            {
                 n.call_in = o.clone();
             }
         }
@@ -503,9 +540,10 @@ impl Controller {
 
     fn schedule_apply(&self) {
         self.st.borrow_mut().apply_pending = true;
-        self.apply_timer.start(TimerMode::SingleShot, APPLY_DELAY, || {
-            with_ctrl(|c| c.apply_now())
-        });
+        self.apply_timer
+            .start(TimerMode::SingleShot, APPLY_DELAY, || {
+                with_ctrl(|c| c.apply_now())
+            });
     }
 
     fn apply_now(&self) {
@@ -560,16 +598,19 @@ impl Controller {
                 .collect()
         };
         let default_of = |kind: DeviceKind| {
-            devices.iter().find(|d| d.kind == kind && d.default).map(|d| d.name.clone())
+            devices
+                .iter()
+                .find(|d| d.kind == kind && d.default)
+                .map(|d| d.name.clone())
         };
 
         let mut st = self.st.borrow_mut();
         // microphones / speakers: "Windows default" + physical devices
-        let mut build = |kind: DeviceKind, configured: &Option<String>| {
+        let build = |kind: DeviceKind, configured: &Option<String>| {
             let list = names(kind, true);
             let mut labels = vec![match default_of(kind) {
-                Some(d) => format!("跟隨 Windows 預設（{d}）"),
-                None => "跟隨 Windows 預設".to_string(),
+                Some(d) => format!("Windows 預設：{d}"),
+                None => "Windows 預設".to_string(),
             }];
             let mut opts = vec![None];
             for n in &list {
@@ -594,12 +635,16 @@ impl Controller {
         st.settings.speaker = spk_sel;
 
         let mut out_opts = names(DeviceKind::Speaker, false);
-        let out = self.engine.cable_resolve(&st.settings.out, DeviceKind::Speaker, &devices);
+        let out = self
+            .engine
+            .cable_resolve(&st.settings.out, DeviceKind::Speaker, &devices);
         if !out_opts.contains(&out) {
             out_opts.insert(0, out);
         }
         let mut call_opts = names(DeviceKind::Mic, false);
-        let call = self.engine.cable_resolve(&st.settings.call_in, DeviceKind::Mic, &devices);
+        let call = self
+            .engine
+            .cable_resolve(&st.settings.call_in, DeviceKind::Mic, &devices);
         if !call_opts.contains(&call) {
             call_opts.insert(0, call);
         }
@@ -638,7 +683,7 @@ impl Controller {
             app.set_virtual_mic_name(s(mic_name.as_str()));
             app.set_siri_speaker_name(s(spk_name.as_str()));
             let status = if !cable.found {
-                "沒有 VB-Cable，對方就聽不到處理過的聲音。請先安裝，裝好後重新開機。".to_string()
+                "安裝步驟：下載並解壓縮 → 以系統管理員身分執行 VBCABLE_Setup_x64.exe → 按 Install Driver → 重新開機。".to_string()
             } else if !cable.renamed {
                 format!("Discord / LINE 的麥克風請選「{mic_name}」。建議按右邊的按鈕把名稱改得好懂一點。")
             } else if !cable.unused.is_empty() {
@@ -651,7 +696,10 @@ impl Controller {
             };
             app.set_cable_status(s(status));
             app.set_rename_lines(model(
-                CABLE_RENAMES.iter().map(|(a, b)| s(format!("{a} → {b}"))).collect(),
+                CABLE_RENAMES
+                    .iter()
+                    .map(|(a, b)| s(format!("{a} → {b}")))
+                    .collect(),
             ));
             app.set_unused_devices(model(cable.unused.iter().map(|n| s(n.as_str())).collect()));
         }
@@ -736,13 +784,19 @@ impl Controller {
                 self.log(format!("無法開始：{e}"));
                 if let StartReason::Auto(n) = reason {
                     if n < AUTO_START_TRIES {
-                        self.log(format!("自動開始失敗，5 秒後重試（{n}/{AUTO_START_TRIES}）"));
-                        self.retry_timer.start(TimerMode::SingleShot, Duration::from_secs(5), move || {
-                            with_ctrl(|c| {
-                                c.refresh_devices();
-                                c.start(StartReason::Auto(n + 1));
-                            })
-                        });
+                        self.log(format!(
+                            "自動開始失敗，5 秒後重試（{n}/{AUTO_START_TRIES}）"
+                        ));
+                        self.retry_timer.start(
+                            TimerMode::SingleShot,
+                            Duration::from_secs(5),
+                            move || {
+                                with_ctrl(|c| {
+                                    c.refresh_devices();
+                                    c.start(StartReason::Auto(n + 1));
+                                })
+                            },
+                        );
                     } else {
                         self.st.borrow_mut().autostart_failed = true;
                         self.show_window();
@@ -793,7 +847,11 @@ impl Controller {
                 app.set_mic_level(0.0);
                 app.set_ref_level(0.0);
                 app.set_out_level(0.0);
-                for f in [AppState::set_mic_db, AppState::set_ref_db, AppState::set_out_db] {
+                for f in [
+                    AppState::set_mic_db,
+                    AppState::set_ref_db,
+                    AppState::set_out_db,
+                ] {
                     f(&app, s("—"));
                 }
                 self.refresh_diag(None);
@@ -815,7 +873,8 @@ impl Controller {
         st.poll_fast = fast;
         drop(st);
         let d = if fast { POLL_FAST } else { POLL_SLOW };
-        self.poll.start(TimerMode::Repeated, d, || with_ctrl(|c| c.tick()));
+        self.poll
+            .start(TimerMode::Repeated, d, || with_ctrl(|c| c.tick()));
     }
 
     /// Periodic: levels, errors, clipping, device changes, toasts.
@@ -891,15 +950,33 @@ impl Controller {
         let siri = self.st.borrow().settings.siri_guard;
         let tips = ui.global::<crate::Tips>();
         let mut rows = vec![
-            ("實際使用的引擎", self.engine.engine_name().unwrap_or_else(dash), tips.get_diag_engine()),
-            ("喇叭聲音緩衝", status.map_or_else(dash, |s| format!("{:.0} ms", s.ref_buf_ms)), tips.get_diag_buffer()),
-            ("時脈漂移", status.map_or_else(dash, |s| format!("{:+.0} ppm", s.drift_ppm)), tips.get_diag_drift()),
+            (
+                "實際使用的引擎",
+                self.engine.engine_name().unwrap_or_else(dash),
+                tips.get_diag_engine(),
+            ),
+            (
+                "喇叭聲音緩衝",
+                status.map_or_else(dash, |s| format!("{:.0} ms", s.ref_buf_ms)),
+                tips.get_diag_buffer(),
+            ),
+            (
+                "時脈漂移",
+                status.map_or_else(dash, |s| format!("{:+.0} ppm", s.drift_ppm)),
+                tips.get_diag_drift(),
+            ),
             (
                 "欠載次數（喇叭／輸出）",
-                status.map_or_else(dash, |s| format!("{} ／ {}", s.ref_underruns, s.out_underruns)),
+                status.map_or_else(dash, |s| {
+                    format!("{} ／ {}", s.ref_underruns, s.out_underruns)
+                }),
                 tips.get_diag_underruns(),
             ),
-            ("每 10 ms 音框運算時間", status.map_or_else(dash, |s| format!("{:.2} ms", s.aec_ms)), tips.get_diag_cpu()),
+            (
+                "每 10 ms 音框運算時間",
+                status.map_or_else(dash, |s| format!("{:.2} ms", s.aec_ms)),
+                tips.get_diag_cpu(),
+            ),
         ];
         if siri {
             rows.push((
@@ -907,10 +984,21 @@ impl Controller {
                 status.map_or_else(dash, |s| s.siri_detections.to_string()),
                 tips.get_diag_siri(),
             ));
+            rows.push((
+                "Hey Siri 防誤觸多出的延遲",
+                self.engine
+                    .guard_latency_ms()
+                    .map_or_else(dash, |ms| format!("{ms:.1} ms")),
+                tips.get_diag_siri_latency(),
+            ));
         }
         let model_rows: Vec<DiagRow> = rows
             .into_iter()
-            .map(|(label, value, tip)| DiagRow { label: s(label), value: s(value), tip })
+            .map(|(label, value, tip)| DiagRow {
+                label: s(label),
+                value: s(value),
+                tip,
+            })
             .collect();
         ui.global::<AppState>().set_diag(model(model_rows));
     }
@@ -988,7 +1076,10 @@ impl Controller {
                 "在 VB-Audio 網站同一頁下載 VB-CABLE A+B，安裝後重新開機。",
             ));
         }
-        if st.settings.siri_guard && st.settings.siri_mode == "detect" && st.settings.siri_model.is_empty() {
+        if st.settings.siri_guard
+            && st.settings.siri_mode == "detect"
+            && st.settings.siri_model.is_empty()
+        {
             let b = bar(
                 Severity::Warning,
                 "還沒選模型檔",
@@ -1050,7 +1141,14 @@ impl Controller {
         }
         let mut advanced = Vec::new();
         if let Some(e) = &st.autostart_error {
-            advanced.push(bar(Severity::Error, "無法變更開機自動啟動", &short(e), "", "", ""));
+            advanced.push(bar(
+                Severity::Error,
+                "無法變更開機自動啟動",
+                &short(e),
+                "",
+                "",
+                "",
+            ));
         }
         let calib = st.calib.clone();
         let calibrating = st.calibrating;
@@ -1069,7 +1167,14 @@ impl Controller {
             } else {
                 ("", "")
             };
-            app.set_calib_bar(bar(c.severity, &c.title, &c.message, action, id, &tips.get_apply_suggestion()));
+            app.set_calib_bar(bar(
+                c.severity,
+                &c.title,
+                &c.message,
+                action,
+                id,
+                &tips.get_apply_suggestion(),
+            ));
         }
     }
 
@@ -1138,7 +1243,9 @@ impl Controller {
         let engine = self.engine.clone();
         let log = self.log_sink();
         self.spawn(move || {
-            let r = engine.calibrate(&settings, log).map_err(|e| format!("{e:#}"));
+            let r = engine
+                .calibrate(&settings, log)
+                .map_err(|e| format!("{e:#}"));
             Msg::Calibrated(r, resume)
         });
     }
@@ -1253,7 +1360,9 @@ impl Controller {
         self.st.borrow_mut().cable_result = Some(res);
         self.refresh_devices();
         // Windows can take a moment to publish the new names
-        Timer::single_shot(Duration::from_millis(1500), || with_ctrl(|c| c.refresh_devices()));
+        Timer::single_shot(Duration::from_millis(1500), || {
+            with_ctrl(|c| c.refresh_devices())
+        });
         if resume {
             self.start(StartReason::Resume);
         }
@@ -1276,7 +1385,8 @@ impl Controller {
             });
         }
         if let Some(ui) = self.ui() {
-            ui.global::<AppState>().set_autostart(self.engine.autostart_enabled());
+            ui.global::<AppState>()
+                .set_autostart(self.engine.autostart_enabled());
         }
         self.refresh_bars();
     }
@@ -1290,7 +1400,9 @@ impl Controller {
         if cb.is_none() {
             *cb = arboard::Clipboard::new().ok();
         }
-        let ok = cb.as_mut().is_some_and(|c| c.set_text(text.to_string()).is_ok());
+        let ok = cb
+            .as_mut()
+            .is_some_and(|c| c.set_text(text.to_string()).is_ok());
         drop(cb);
         if ok {
             self.toast(toast);
@@ -1319,7 +1431,8 @@ impl Controller {
     fn pick_model(&self) {
         if let Some(p) = pick_file() {
             if let Some(ui) = self.ui() {
-                ui.global::<Cfg>().set_siri_model(s(p.display().to_string()));
+                ui.global::<Cfg>()
+                    .set_siri_model(s(p.display().to_string()));
             }
             self.read_cfg();
         }
@@ -1424,7 +1537,10 @@ fn friendly_start_error(err: &str) -> String {
     } else if e.contains("siri-model") || e.contains("模型") {
         "「偵測到 Hey Siri 才處理」需要模型檔，請到「Hey Siri 防誤觸」頁選擇。".into()
     } else if e.contains("no mic") || e.contains("no speaker") || e.contains("device") {
-        format!("找不到選擇的音效裝置，可能被拔掉了。請到「裝置」頁重新選擇。（{}）", short(err))
+        format!(
+            "找不到選擇的音效裝置，可能被拔掉了。請到「裝置」頁重新選擇。（{}）",
+            short(err)
+        )
     } else {
         format!("請確認裝置都有接好，再試一次。（{}）", short(err))
     }
@@ -1441,7 +1557,9 @@ fn pick_file() -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn pick_folder() -> Option<PathBuf> {
-    rfd::FileDialog::new().set_title("選擇除錯錄音資料夾").pick_folder()
+    rfd::FileDialog::new()
+        .set_title("選擇除錯錄音資料夾")
+        .pick_folder()
 }
 
 // No file dialog dependency on other platforms (development only).

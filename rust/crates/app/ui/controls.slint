@@ -326,6 +326,8 @@ export component ExpanderCard inherits Rectangle {
                 root.expanded = !root.expanded;
             }
             fs := FocusScope {
+                // mouse clicks go to the Tip (TouchArea); focus only via Tab
+                focus-on-click: false;
                 key-pressed(e) => {
                     if e.text == " " || e.text == Key.Return {
                         root.expanded = !root.expanded;
@@ -507,11 +509,10 @@ export component Meter {
                     background: Theme.track;
                     Rectangle {
                         x: 0px;
-                        width: max(0px, min(1, root.level)) * track.width;
+                        width: max(0, min(1, root.level)) * track.width;
                         height: parent.height;
                         border-radius: 3px;
                         background: root.active ? Theme.accent : Theme.text-disabled;
-                        animate width { duration: 90ms; }
                     }
                 }
             }
@@ -552,6 +553,8 @@ export component NavItem inherits Rectangle {
             root.clicked();
         }
         fs := FocusScope {
+                // mouse clicks go to the Tip (TouchArea); focus only via Tab
+                focus-on-click: false;
             key-pressed(e) => {
                 if e.text == " " || e.text == Key.Return {
                     root.clicked();
@@ -629,11 +632,12 @@ export component RadioOption {
         enabled: root.enabled;
         clicked => {
             if root.enabled {
-                fs.focus();
                 root.clicked();
             }
         }
         fs := FocusScope {
+                // mouse clicks go to the Tip (TouchArea); focus only via Tab
+                focus-on-click: false;
             enabled: root.enabled;
             key-pressed(e) => {
                 if e.text == " " || e.text == Key.Return {

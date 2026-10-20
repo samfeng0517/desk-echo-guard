@@ -139,7 +139,7 @@ pub fn run() -> (bool, Vec<String>) {
     }
     let good = settings_check().unwrap_or(false);
     ok &= good;
-    lines.push(format!("{}  settings file round trip", mark(good).trim_end()));
+    lines.push(format!("{} settings file round trip", mark(good)));
     lines.push(wakeword_line());
     device_lines(&mut lines);
     lines.push(format!("RESULT: {}", if ok { "PASS" } else { "FAIL" }));

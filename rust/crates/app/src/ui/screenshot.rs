@@ -11,8 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType, Rgb8Pixel};
+use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
 use slint::platform::{Platform, WindowAdapter, WindowEvent};
+use slint::Rgb8Pixel;
 use slint::{ComponentHandle, LogicalPosition, PhysicalSize};
 
 use super::controller::{Controller, Options, StartReason};
@@ -89,7 +90,9 @@ impl Shooter {
     }
 
     fn hover(&self, x: f32, y: f32) {
-        self.window.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(x, y) });
+        self.window.dispatch_event(WindowEvent::PointerMoved {
+            position: LogicalPosition::new(x, y),
+        });
         self.advance(800);
     }
 
@@ -131,21 +134,33 @@ pub fn run(dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     let now = Rc::new(Cell::new(Duration::ZERO));
-    slint::platform::set_platform(Box::new(ShotPlatform { window: window.clone(), now: now.clone() }))
-        .map_err(|e| anyhow::anyhow!("set_platform: {e:?}"))?;
+    slint::platform::set_platform(Box::new(ShotPlatform {
+        window: window.clone(),
+        now: now.clone(),
+    }))
+    .map_err(|e| anyhow::anyhow!("set_platform: {e:?}"))?;
 
     let ui = AppWindow::new()?;
     ui.set_font_family(super::font_family().into());
     window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
     ui.show()?;
-    let mut sh = Shooter { ui, window, now, dir: dir.to_path_buf(), ctrl: None };
+    let mut sh = Shooter {
+        ui,
+        window,
+        now,
+        dir: dir.to_path_buf(),
+        ctrl: None,
+    };
     let _ = std::fs::remove_file(sh.dir.join("screenshot-settings.toml"));
 
     for dark in [false, true] {
         let suffix = if dark { "dark" } else { "light" };
         sh.ui.invoke_set_dark(dark);
         sh.size(900, 640);
-        sh.engine(MockOptions { delays: false, ..Default::default() });
+        sh.engine(MockOptions {
+            delays: false,
+            ..Default::default()
+        });
         sh.ctrl().start(StartReason::User);
         std::thread::sleep(Duration::from_millis(1300)); // let the mock levels move
         sh.page(0);
@@ -166,20 +181,37 @@ pub fn run(dir: &Path) -> Result<()> {
     // ---- light-theme extras
     sh.ui.invoke_set_dark(false);
     sh.size(900, 640);
-    sh.engine(MockOptions { delays: false, ..Default::default() });
+    sh.engine(MockOptions {
+        delays: false,
+        ..Default::default()
+    });
     sh.page(0);
     // tooltip on the start button
     let (x, y) = std::env::var("DEG_SHOT_HOVER")
         .ok()
-        .and_then(|v| v.split_once(',').map(|(a, b)| (a.parse().ok(), b.parse().ok())))
+        .and_then(|v| {
+            v.split_once(',')
+                .map(|(a, b)| (a.parse().ok(), b.parse().ok()))
+        })
         .and_then(|(a, b)| Some((a?, b?)))
         .unwrap_or((790.0, 136.0));
     sh.hover(x, y);
     sh.shot("home-tooltip-light")?;
     sh.unhover();
 
+    // narrow window (minimum size): navigation collapses to icons
+    sh.size(760, 560);
+    sh.page(0);
+    sh.shot("home-narrow-light")?;
+    sh.size(900, 640);
+
     // InfoBars: mic too loud, Siri guard without VB-CABLE A+B
-    sh.engine(MockOptions { delays: false, loud_mic: true, cable_ab: false, ..Default::default() });
+    sh.engine(MockOptions {
+        delays: false,
+        loud_mic: true,
+        cable_ab: false,
+        ..Default::default()
+    });
     sh.ui.global::<Cfg>().set_siri_guard(true);
     sh.ui.global::<Cfg>().invoke_changed();
     sh.ctrl().start(StartReason::User);
@@ -189,12 +221,20 @@ pub fn run(dir: &Path) -> Result<()> {
     sh.ui.global::<Cfg>().set_siri_guard(false);
     sh.ui.global::<Cfg>().invoke_changed();
 
-    sh.engine(MockOptions { delays: false, cable: false, cable_ab: false, ..Default::default() });
+    sh.engine(MockOptions {
+        delays: false,
+        cable: false,
+        cable_ab: false,
+        ..Default::default()
+    });
     sh.page(1);
     sh.shot("devices-no-cable-light")?;
 
     // VB-Cable dialog
-    sh.engine(MockOptions { delays: false, ..Default::default() });
+    sh.engine(MockOptions {
+        delays: false,
+        ..Default::default()
+    });
     sh.page(1);
     let app = sh.ui.global::<AppState>();
     app.set_dialog_rename(true);
@@ -204,7 +244,7 @@ pub fn run(dir: &Path) -> Result<()> {
     app.set_dialog(0);
 
     // Advanced, scrolled content: calibration result + diagnostics, tall
-    sh.size(900, 1500);
+    sh.size(900, 2450);
     app.invoke_calibrate();
     app.set_diag_expanded(true);
     app.set_about_expanded(true);

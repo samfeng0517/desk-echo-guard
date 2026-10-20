@@ -28,8 +28,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use echoguard_aec::{make_engine, AecProcessor, EngineOptions};
 use echoguard_audio::{AudioBackend, DeviceKind, InputStream, OutputStream};
 use echoguard_dsp::{
-    db, energy, estimate_delay_ms, Detector, ElasticBuffer, ElasticOptions, GuardConfig,
-    GuardMode, NotchConfig, SibilantDetector, SiriGuard, FRAME, FS,
+    db, energy, estimate_delay_ms, Detector, ElasticBuffer, ElasticOptions, GuardConfig, GuardMode,
+    NotchConfig, SibilantDetector, SiriGuard, FRAME, FS,
 };
 use parking_lot::Mutex;
 use rand::SeedableRng;
@@ -490,7 +490,9 @@ impl EchoGuard {
             writer(sh, out, |sh| &sh.out_buf, bs)
         })?;
         if let Some((g, call, spk)) = guard_io {
-            spawn(&sh, th, "guard-reader", move |sh| guard_reader(sh, call, g, bs))?;
+            spawn(&sh, th, "guard-reader", move |sh| {
+                guard_reader(sh, call, g, bs)
+            })?;
             spawn(&sh, th, "spk-writer", move |sh| {
                 writer(sh, spk, |sh| &sh.spk_buf, bs)
             })?;
@@ -715,7 +717,9 @@ pub fn calibrate(
     let mut mic = backend.open_input(s.mic.as_deref(), false, bs)?;
     let lb = backend.open_input(s.speaker.as_deref(), true, bs)?;
     let result = (|| -> Result<(Vec<f32>, Vec<f32>)> {
-        spawn(&sh, &mut threads, "ref-reader", move |sh| ref_reader(sh, lb, bs))?;
+        spawn(&sh, &mut threads, "ref-reader", move |sh| {
+            ref_reader(sh, lb, bs)
+        })?;
         thread::sleep(Duration::from_millis(200));
         let be = backend.clone();
         let speaker = s.speaker.clone();

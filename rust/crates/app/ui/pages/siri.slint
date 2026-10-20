@@ -1,7 +1,7 @@
 import { Button, ComboBox, Switch, Slider } from "std-widgets.slint";
 import { Theme, Icons } from "../theme.slint";
 import { Tips } from "../tips.slint";
-import { Tip, Card, SettingsCard, RadioOption, LinkText, FluentIcon, Caption } from "../controls.slint";
+import { Tip, Card, SettingsCard, RadioOption, LinkText, FluentIcon, Caption, InfoBar } from "../controls.slint";
 import { AppState, Cfg, Links } from "../state.slint";
 import { Page, Section } from "page.slint";
 
@@ -17,7 +17,6 @@ export global SiriText {
 
 export component SiriPage inherits Page {
     title: "Hey Siri 防誤觸";
-    bars: AppState.siri-bars;
 
     // ---- what this is
     Card {
@@ -63,13 +62,28 @@ export component SiriPage inherits Page {
         }
     }
 
+    // requirements (VB-CABLE A+B, output device in the call app)
+    for b in AppState.siri-bars: VerticalLayout {
+        padding-top: 8px;
+        InfoBar {
+            severity: b.severity;
+            title: b.title;
+            message: b.message;
+            action: b.action;
+            action-tip: b.tip;
+            action-clicked => {
+                AppState.infobar-action(b.action-id);
+            }
+        }
+    }
+
     Section {
         text: "設定";
     }
     SettingsCard {
         icon: Icons.shield;
         title: "啟用 Hey Siri 防誤觸";
-        description: Cfg.siri-guard ? "通話軟體的喇叭要選「" + AppState.siri-speaker-name + "」" : "需要另外安裝 VB-CABLE A+B";
+        description: Cfg.siri-guard ? "通話軟體的喇叭要選「" + AppState.siri-speaker-name + "」" : "防止通話對方說的「Hey Siri」叫醒你的裝置";
         tip: Tips.siri-enable;
         Text {
             text: Cfg.siri-guard ? "開啟" : "關閉";

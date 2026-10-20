@@ -30,7 +30,13 @@ export component AppWindow inherits Window {
         Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
     }
 
-    private property <bool> compact: AppState.nav-compact || root.width < 840px;
+    // narrow window -> icon-only navigation (set imperatively to avoid a
+    // layout binding loop through the navigation width)
+    private property <bool> narrow: false;
+    changed width => {
+        root.narrow = root.width < 840px;
+    }
+    private property <bool> compact: AppState.nav-compact || root.narrow;
     private property <length> nav-width: root.compact ? 56px : 248px;
 
     HorizontalLayout {
@@ -224,7 +230,7 @@ export component AppWindow inherits Window {
                     if !AppState.cable-renamed: Caption {
                         text: "通話軟體裡會看到這些新名稱：";
                     }
-                    if !AppState.cable-renamed: for line in AppState.rename-lines: Caption {
+                    for line in AppState.rename-lines: Caption {
                         text: "・" + line;
                     }
                 }
