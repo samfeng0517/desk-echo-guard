@@ -27,13 +27,13 @@ the main pages).
 
 ## Navigation
 
-Left navigation pane (icons + labels, collapsible), five items:
+Left navigation pane (icons + labels, collapsible), four items plus a link:
 
 1. **首頁** – status and the one big button
 2. **裝置** – microphone, speakers, VB-Cable
 3. **Hey Siri 防誤觸**
 4. **進階** – sound tuning, delay measurement, start-up, logs
-5. **說明** – step-by-step guide, FAQ, re-run the setup wizard
+5. 說明文件 (link, opens the online guide)
 
 ## Interaction rules (fewer buttons)
 
@@ -53,32 +53,25 @@ Left navigation pane (icons + labels, collapsible), five items:
 * Closing the window hides it to the tray; the first time, a notification
   says so and how to quit.
 
-## First-run setup wizard
+## Tooltips (instead of a setup wizard)
 
-Shown when no settings file exists (and from 說明 → "重新執行設定精靈").
-Full window, step indicator at the top ("步驟 2 / 5"), 上一步 / 下一步 at the
-bottom right, "略過精靈" link at the bottom left.
+There is no setup wizard and no tutorial screens.  Help comes from
+**hover tooltips**: every control, settings card, meter, InfoBar action and
+nav item shows a Fluent-style tooltip after ~500 ms of hover (and on
+keyboard focus), disappearing on leave.  A tooltip answers in 1–3 short
+sentences: what it is, when to change it, the recommended value.  Examples:
 
-1. **歡迎** – what the program does in three bullets, with a simple
-   diagram: 喇叭 → 麥克風收到回音 → 本程式把回音扣掉 → Discord / LINE.
-   "大約需要 5 分鐘。"
-2. **安裝 VB-Cable** – detects it.  Missing: explain what it is ("一條
-   虛擬的音源線，本程式用它把處理好的聲音交給 Discord / LINE"), button
-   "下載 VB-Cable", numbered install steps (解壓縮 → 以系統管理員身分執行
-   VBCABLE_Setup_x64.exe → Install Driver → 重新開機), re-checks by itself
-   every few seconds; found: success InfoBar.  Offer "把 VB-Cable 改成好懂
-   的名稱（建議）" as a checkbox, done at the end of the wizard.
-3. **麥克風與喇叭** – two combo boxes (default entry shows the current
-   Windows default: "Windows 預設（Realtek 麥克風）").  Live meters with
-   instructions: "對著麥克風說話，上面那條應該會跳動" and a "播放測試音"
-   button that plays 1 s of a soft tone on the chosen speakers so the
-   喇叭 meter moves.  Warning InfoBar if the mic clips.
-4. **設定通話軟體** – tabs Discord / LINE / 其他軟體; numbered steps with the
-   exact menu path and the exact device name to pick, each name with a copy
-   button; "關掉通話軟體自己的回音消除" explained; Discord: Krisp may stay
-   on; NVIDIA Broadcast off.
-5. **完成** – toggle "登入 Windows 時自動啟動（建議）", button
-   "開始使用" (starts the pipeline and opens 首頁).
+* 麥克風: "你實際說話用的麥克風。通常用 Windows 預設就好。"
+* 喇叭: "你聽對方聲音用的喇叭。程式會擷取它正在播的聲音，用來把回音扣掉。"
+* 降噪: "去除風扇、冷氣等持續的背景聲。建議開啟。"
+* 送給對方 meter: "對方聽到的聲音。對方說話時這條幾乎不動，代表回音被消掉了。"
+* 開始: "開始消除回音。通話前先按這裡，再開 Discord / LINE。"
+
+Slint has no built-in tooltip widget: implement one reusable `ToolTip`
+component (hover delay timer, rounded card with shadow, positioned below
+the target and kept inside the window, max width ~320 px, wraps text).
+Keep all tooltip texts in one place (a `.slint` global or a Rust table) so
+they are easy to review and edit.
 
 ## 首頁
 
@@ -87,7 +80,7 @@ bottom right, "略過精靈" link at the bottom left.
   聽到回音。"), accent button **開始** / **停止**.
 * "在通話軟體這樣設定" card: "麥克風（輸入裝置）選：**回聲消除麥克風**"
   [複製]; when the Siri guard is on also "喇叭（輸出裝置）選：**Siri防護喇叭**".
-  Link "看圖解步驟" → 說明.
+  Tooltip on each line explains where that setting is in Discord / LINE.
 * Live levels card, three meters with plain names and one-line hints:
   - 你的麥克風 – "你說話時會跳動"
   - 喇叭播放中 – "對方說話或播放音樂時會跳動"
@@ -102,7 +95,9 @@ bottom right, "略過精靈" link at the bottom left.
 
 * 麥克風 (settings card + combo box, description "你實際說話用的麥克風").
 * 喇叭 (description "你聽對方聲音用的喇叭；程式會擷取它正在播的聲音來消除回音").
-* VB-Cable card: status line ("已安裝，Discord / LINE 的麥克風請選「回聲消除
+* VB-Cable card (when VB-Cable is missing: InfoBar with "下載 VB-Cable" and a
+  tooltip listing the install steps: 解壓縮 → 以系統管理員身分執行
+  VBCABLE_Setup_x64.exe → Install Driver → 重新開機): status line ("已安裝，Discord / LINE 的麥克風請選「回聲消除
   麥克風」") and one button "整理 VB-Cable…" (dialog with two checkboxes:
   改成好懂的名稱 / 停用用不到的 VB-Cable 裝置, each with its explanation);
   "還原 VB-Cable 原本的設定" inside an expander.
@@ -137,17 +132,10 @@ bottom right, "略過精靈" link at the bottom left.
 * About: version, licence, Slint attribution (required by the Slint
   royalty-free licence), link to GitHub.
 
-## 說明
+## 說明 (no separate page)
 
-* Same content as `docs/getting-started.md` (rendered natively, not a web
-  view): the 5-step guide, how to check it works ("請對方說話，『送給對方』
-  幾乎不動 = 成功"), FAQ / troubleshooting:
-  - 對方還是聽得到回音
-  - 對方說我的聲音斷斷續續 / 被吃字
-  - 對方完全聽不到我
-  - 開機後沒有自動開始
-  - 想完全移除
-* Buttons: "重新執行設定精靈", "開啟線上說明".
+The nav pane ends with a "說明文件" link that opens the online guide
+(`docs/getting-started.md` on GitHub).  Everything else is in tooltips.
 
 ## Tray
 

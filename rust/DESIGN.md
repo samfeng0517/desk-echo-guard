@@ -217,7 +217,6 @@ impl EchoGuard {
 pub fn run_blocking(s: &Settings, backend, duration_s: Option<f64>, log) -> Result<()>; // CLI loop + Ctrl+C
 pub fn calibrate(s: &Settings, backend, seconds: f64, level_db: f64, log) -> Result<(f64, f64)>;
 pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // detect -> wakeword, sibilant, always
-pub fn play_test_tone(backend, speaker: Option<&str>, seconds: f64) -> Result<()>;  // wizard: soft 440 Hz tone
 
 // vcable.rs (vcable.py) – pure role logic + Windows endpoint ops
 pub struct Role { pub key: &'static str, pub kind: DeviceKind, pub original: &'static str, pub renamed: &'static str }
