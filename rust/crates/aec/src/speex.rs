@@ -26,10 +26,22 @@ const SPEEX_PREPROCESS_SET_ECHO_STATE: c_int = 24;
 extern "C" {
     fn speex_echo_state_init(frame_size: c_int, filter_length: c_int) -> *mut SpeexEchoState;
     fn speex_echo_state_destroy(st: *mut SpeexEchoState);
-    fn speex_echo_cancellation(st: *mut SpeexEchoState, rec: *const i16, play: *const i16, out: *mut i16);
-    fn speex_preprocess_state_init(frame_size: c_int, sampling_rate: c_int) -> *mut SpeexPreprocessState;
+    fn speex_echo_cancellation(
+        st: *mut SpeexEchoState,
+        rec: *const i16,
+        play: *const i16,
+        out: *mut i16,
+    );
+    fn speex_preprocess_state_init(
+        frame_size: c_int,
+        sampling_rate: c_int,
+    ) -> *mut SpeexPreprocessState;
     fn speex_preprocess_state_destroy(st: *mut SpeexPreprocessState);
-    fn speex_preprocess_ctl(st: *mut SpeexPreprocessState, request: c_int, ptr: *mut c_void) -> c_int;
+    fn speex_preprocess_ctl(
+        st: *mut SpeexPreprocessState,
+        request: c_int,
+        ptr: *mut c_void,
+    ) -> c_int;
     fn speex_preprocess_run(st: *mut SpeexPreprocessState, x: *mut i16) -> c_int;
 }
 
@@ -109,7 +121,12 @@ impl LowRateEngine for SpeexCore {
         }
         // SAFETY: valid states, all buffers hold exactly N = frame_size samples.
         unsafe {
-            speex_echo_cancellation(self.echo, self.mic.as_ptr(), self.reference.as_ptr(), self.out.as_mut_ptr());
+            speex_echo_cancellation(
+                self.echo,
+                self.mic.as_ptr(),
+                self.reference.as_ptr(),
+                self.out.as_mut_ptr(),
+            );
             if !self.pre.is_null() {
                 speex_preprocess_run(self.pre, self.out.as_mut_ptr());
             }

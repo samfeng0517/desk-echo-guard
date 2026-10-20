@@ -21,7 +21,12 @@ impl WebRtcAec {
         stream_delay_ms: i32,
     ) -> Self {
         Self {
-            apm: AudioProcessingModule::new(true, auto_gain_control, high_pass_filter, noise_suppression),
+            apm: AudioProcessingModule::new(
+                true,
+                auto_gain_control,
+                high_pass_filter,
+                noise_suppression,
+            ),
             stream_delay_ms,
             mic: vec![0; FRAME],
             reference: vec![0; FRAME],

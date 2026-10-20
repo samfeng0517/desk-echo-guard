@@ -1,5 +1,0 @@
-# libwebrtc's prebuilt Linux archive needs clang >= 21 (dev / test machines
-# only; Windows builds use MSVC).  Override with CC / CXX if needed.
-[env]
-CC_x86_64_unknown_linux_gnu = { value = "clang-21", force = false }
-CXX_x86_64_unknown_linux_gnu = { value = "clang++-21", force = false }

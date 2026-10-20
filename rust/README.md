@@ -46,7 +46,7 @@ cargo test --workspace --release
 ```
 
 - **Windows**：需要 MSVC 工具鏈（Visual Studio Build Tools 的「使用 C++ 的桌面開發」）。
-- **Linux**（只用來開發和跑測試，沒有 WASAPI 音效後端）：WebRTC 引擎用的 `libwebrtc` 預編譯檔需要 **clang 21**。`.cargo/config.toml` 預設用 `clang-21` / `clang++-21`，要換的話設定 `CC` / `CXX` 環境變數。
+- **Linux**（只用來開發和跑測試，沒有 WASAPI 音效後端）：WebRTC 引擎用的 `libwebrtc` 預編譯檔需要 **clang 21**。編譯前先設定環境變數：`export CC=clang-21 CXX=clang++-21`。
 - **Cargo features**（在 `echoguard-aec`）：
   - `webrtc`（預設開）：WebRTC AEC3 引擎，透過 LiveKit 的 `libwebrtc` crate。
   - `speex`（預設開）：SpeexDSP 引擎，內附 C 原始碼用 `cc` 編譯。

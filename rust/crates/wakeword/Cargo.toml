@@ -1,6 +1,6 @@
 [package]
 name = "echoguard-wakeword"
-description = "openWakeWord (Hey Siri model) detector on ONNX Runtime for the Siri guard"
+description = "openWakeWord (Hey Siri model) detector (pure-Rust tract ONNX inference) for the Siri guard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 echoguard-dsp.workspace = true
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls"] }
+tract-onnx = { version = "0.23.9", default-features = false }
 log.workspace = true
 
 # Model download.  Windows: SChannel (system certificate store, no C build

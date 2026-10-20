@@ -1,5 +1,5 @@
-//! openWakeWord detector on ONNX Runtime (`siri_guard.OpenWakeWordDetector`);
-//! see `DESIGN.md` (echoguard-wakeword).
+//! openWakeWord detector on tract, a pure-Rust ONNX runtime
+//! (`siri_guard.OpenWakeWordDetector`); see `DESIGN.md` (echoguard-wakeword).
 
 mod models;
 mod oww;

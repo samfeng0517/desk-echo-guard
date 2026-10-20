@@ -40,6 +40,10 @@ jobs:
 
   linux:
     runs-on: ubuntu-24.04
+    env:
+      # webrtc-sys only reads plain CC / CXX
+      CC: clang-21
+      CXX: clang++-21
     defaults:
       run:
         working-directory: rust

@@ -14,7 +14,10 @@ impl LowRateEngine for NlmsCore {
     }
 
     fn process_lowrate(&mut self, mic: &[f32], reference: &[f32], out: &mut [f32]) -> Result<()> {
-        ensure!(mic.len() == NLMS_BLOCK, "nlms needs {NLMS_BLOCK}-sample blocks");
+        ensure!(
+            mic.len() == NLMS_BLOCK,
+            "nlms needs {NLMS_BLOCK}-sample blocks"
+        );
         self.0.process(mic, reference, out);
         Ok(())
     }

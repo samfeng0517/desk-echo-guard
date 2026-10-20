@@ -51,7 +51,11 @@ impl<E: LowRateEngine> EchoCanceller for Resampled<E> {
         self.low.resize(m.len(), 0.0);
         self.engine.process_lowrate(&m, &r, &mut self.low)?;
         let y = self.up.process(&self.low);
-        ensure!(y.len() == out.len(), "resampler produced {} samples", y.len());
+        ensure!(
+            y.len() == out.len(),
+            "resampler produced {} samples",
+            y.len()
+        );
         out.copy_from_slice(&y);
         Ok(())
     }

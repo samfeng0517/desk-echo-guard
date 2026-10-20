@@ -1,6 +1,6 @@
 // Desk Echo Guard main window (Windows 11 / Fluent).  See ../UI.md.
 
-import { CheckBox } from "std-widgets.slint";
+import { CheckBox, Palette } from "std-widgets.slint";
 import { Theme, Icons, Severity } from "theme.slint";
 import { Tips } from "tips.slint";
 import { Tip, NavItem, DialogFrame, Toast, ToolTipOverlay, TipState, Caption } from "controls.slint";
@@ -24,6 +24,11 @@ export component AppWindow inherits Window {
     background: Theme.window-bg;
     default-font-family: root.font-family;
     default-font-size: Theme.body;
+
+    // screenshots / tests: force the light or dark theme
+    public function set-dark(dark: bool) {
+        Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
+    }
 
     private property <bool> compact: AppState.nav-compact || root.width < 840px;
     private property <length> nav-width: root.compact ? 56px : 248px;

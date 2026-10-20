@@ -20,7 +20,14 @@ fn build_speex() {
         .include(&src)
         .define("HAVE_CONFIG_H", None)
         .warnings(false);
-    for f in ["mdf.c", "preprocess.c", "filterbank.c", "fftwrap.c", "kiss_fft.c", "kiss_fftr.c"] {
+    for f in [
+        "mdf.c",
+        "preprocess.c",
+        "filterbank.c",
+        "fftwrap.c",
+        "kiss_fft.c",
+        "kiss_fftr.c",
+    ] {
         b.file(src.join(f));
     }
     if b.get_compiler().is_like_msvc() {

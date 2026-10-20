@@ -75,7 +75,11 @@ pub fn available_engines() -> Vec<&'static str> {
 
 /// Create an engine by name; `"auto"` = the first available one.
 pub fn make_engine(name: &str, opts: &EngineOptions) -> Result<Box<dyn EchoCanceller>> {
-    let name = if name == "auto" { available_engines()[0] } else { name };
+    let name = if name == "auto" {
+        available_engines()[0]
+    } else {
+        name
+    };
     match name {
         #[cfg(feature = "webrtc")]
         "webrtc" => Ok(Box::new(WebRtcAec::new(
@@ -85,7 +89,10 @@ pub fn make_engine(name: &str, opts: &EngineOptions) -> Result<Box<dyn EchoCance
             0,
         ))),
         #[cfg(feature = "speex")]
-        "speex" => Ok(Box::new(SpeexAec::new(opts.filter_ms, opts.noise_suppression)?)),
+        "speex" => Ok(Box::new(SpeexAec::new(
+            opts.filter_ms,
+            opts.noise_suppression,
+        )?)),
         "nlms" => Ok(Box::new(NlmsAec::new(opts.filter_ms))),
         "off" => Ok(Box::new(PassThrough)),
         n if ENGINES.contains(&n) => bail!("此版本未內建回音消除引擎 {n:?}"),
@@ -102,19 +109,24 @@ impl EchoCanceller for PassThrough {
     }
 
     fn process(&mut self, mic: &[f32], _reference: &[f32], out: &mut [f32]) -> Result<()> {
-        ensure!(out.len() == mic.len(), "output length must match the mic frame");
+        ensure!(
+            out.len() == mic.len(),
+            "output length must match the mic frame"
+        );
         out.copy_from_slice(mic);
         Ok(())
     }
 }
 
 /// `aec._to_i16`: round half to even (like numpy), clip.
+#[cfg_attr(not(any(feature = "webrtc", feature = "speex")), allow(dead_code))]
 #[inline]
 pub(crate) fn to_i16(x: f32) -> i16 {
     (x * 32767.0).round_ties_even().clamp(-32768.0, 32767.0) as i16
 }
 
 /// `aec._from_i16`
+#[cfg_attr(not(any(feature = "webrtc", feature = "speex")), allow(dead_code))]
 #[inline]
 pub(crate) fn from_i16(x: i16) -> f32 {
     x as f32 / 32768.0

@@ -1,5 +1,5 @@
 //! Port of openWakeWord's `Model` + `AudioFeatures` streaming pipeline
-//! (openwakeword 0.6, ONNX framework) on ONNX Runtime.
+//! (openwakeword 0.6, ONNX framework) on tract (pure-Rust ONNX inference).
 //!
 //! 16 kHz int16 audio -> melspectrogram.onnx (`x / 10 + 2`) -> 76-frame
 //! windows, step 8 -> embedding_model.onnx (96-dim) -> the last N embedding
@@ -7,12 +7,10 @@
 //! "first 5 predictions are zero" rule follow the Python code exactly.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use ort::environment::Environment;
-use ort::session::Session;
-use ort::value::TensorRef;
+use tract_onnx::prelude::*;
 
 /// Samples per openWakeWord hop (80 ms @ 16 kHz).
 pub const HOP: usize = 1280;
@@ -24,43 +22,75 @@ const MEL_MAX_ROWS: usize = 10 * 97;
 const FEAT_MAX_ROWS: usize = 120;
 const PRED_BUF_LEN: usize = 30;
 
-fn oe<R>(e: ort::Error<R>) -> anyhow::Error {
-    anyhow!("ONNX Runtime: {e}")
+type Plan = TypedSimplePlan;
+
+/// An optimised tract plan plus its reusable run state (single-threaded,
+/// pure Rust).
+pub(crate) struct Session {
+    state: TypedSimpleState,
+    input: TypedFact,
+    output: TypedFact,
 }
 
-/// ONNX Runtime allows one environment per process; create it lazily.
-fn environment() -> Result<Environment> {
-    static ENV: Mutex<Option<Environment>> = Mutex::new(None);
-    let mut g = ENV.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(e) = g.as_ref() {
-        return Ok(e.clone());
+impl Session {
+    /// Load `path`; `input` overrides the first input's shape (`None`: keep
+    /// the model's own, which must then be fully known).  `"B"`-style
+    /// symbolic dims are resolved per run.
+    fn load(path: &Path, input: Option<&[&str]>) -> Result<Self> {
+        let r = (|| -> TractResult<Self> {
+            let mut model = tract_onnx::onnx().model_for_path(path)?;
+            if let Some(dims) = input {
+                let shape: TVec<TDim> = dims
+                    .iter()
+                    .map(|d| match d.parse::<i64>() {
+                        Ok(v) => TDim::Val(v),
+                        Err(_) => TDim::Sym(model.sym(d)),
+                    })
+                    .collect();
+                model.set_input_fact(0, f32::fact(shape).into())?;
+            }
+            let model = model.into_optimized()?;
+            let input = model.input_fact(0)?.clone();
+            let output = model.output_fact(0)?.clone();
+            let plan: Arc<Plan> = model.into_runnable()?;
+            Ok(Self {
+                state: plan.spawn()?,
+                input,
+                output,
+            })
+        })();
+        r.with_context(|| format!("無法載入 ONNX 模型：{}", path.display()))
     }
-    let env = ort::init()
-        .with_name("echoguard")
-        .with_telemetry(false)
-        .build()
-        .map_err(oe)?;
-    env.set_log_level(ort::logging::LogLevel::Error);
-    *g = Some(env.clone());
-    Ok(env)
+
+    /// Input dims with unknown (symbolic) ones as -1.
+    fn input_dims(&self) -> Vec<i64> {
+        dims(&self.input)
+    }
+
+    fn output_dims(&self) -> Vec<i64> {
+        dims(&self.output)
+    }
+
+    /// Run on an f32 tensor; the first output is written to `out` (cleared
+    /// first).
+    fn run_into(&mut self, shape: &[usize], data: &[f32], out: &mut Vec<f32>) -> Result<()> {
+        let input = Tensor::from_shape(shape, data)?;
+        let res = self.state.run(tvec!(input.into_tvalue()))?;
+        let v = res
+            .first()
+            .ok_or_else(|| anyhow!("模型沒有輸出"))?
+            .to_plain_array_view::<f32>()?;
+        out.clear();
+        out.extend(v.iter().copied());
+        Ok(())
+    }
 }
 
-/// Single-threaded CPU session (keeps CPU use and thread count low).
-pub(crate) fn load_session(path: &Path) -> Result<Session> {
-    let env = environment()?;
-    Session::builder(&env)
-        .map_err(oe)?
-        .with_intra_threads(1)
-        .map_err(oe)?
-        .with_inter_threads(1)
-        .map_err(oe)?
-        .with_intra_op_spinning(false)
-        .map_err(oe)?
-        .with_inter_op_spinning(false)
-        .map_err(oe)?
-        .commit_from_file(path)
-        .map_err(oe)
-        .with_context(|| format!("無法載入 ONNX 模型：{}", path.display()))
+fn dims(f: &TypedFact) -> Vec<i64> {
+    f.shape
+        .iter()
+        .map(|d| d.to_i64().unwrap_or(-1))
+        .collect()
 }
 
 /// Deterministic stand-in for openWakeWord's random warm-up audio
@@ -117,18 +147,8 @@ impl OwwModel {
         let mut models = Vec::new();
         let mut labels = Vec::new();
         for p in model_paths {
-            let session = load_session(p)?;
-            let dims = |i: bool| -> Vec<i64> {
-                let o = if i {
-                    session.inputs().first()
-                } else {
-                    session.outputs().first()
-                };
-                o.and_then(|o| o.dtype().tensor_shape())
-                    .map(|s| s.to_vec())
-                    .unwrap_or_default()
-            };
-            let (din, dout) = (dims(true), dims(false));
+            let session = Session::load(p, None)?;
+            let (din, dout) = (session.input_dims(), session.output_dims());
             if din.len() != 3 || din[1] <= 0 || din[2] != EMB_DIM as i64 {
                 bail!(
                     "不支援的 openWakeWord 模型 {}：輸入形狀 {:?}（預期 [1, N, 96]）",
@@ -159,8 +179,8 @@ impl OwwModel {
             });
         }
         let mut me = Self {
-            mel: load_session(melspec)?,
-            emb: load_session(embedding)?,
+            mel: Session::load(melspec, Some(&["1", "S"]))?,
+            emb: Session::load(embedding, Some(&["B", "76", "32", "1"]))?,
             models,
             raw: Vec::with_capacity(2 * RAW_MAX),
             remainder: Vec::new(),
@@ -203,7 +223,7 @@ impl OwwModel {
                         .ok_or_else(|| anyhow!("特徵緩衝區不足 {} 幀", m.n_in))?;
                     let feats = &self.feat_buf[(end - m.n_in) * EMB_DIM..end * EMB_DIM];
                     let out = &mut self.tmp;
-                    run_into(&mut m.session, &[1, m.n_in, EMB_DIM], feats, out)?;
+                    m.session.run_into(&[1, m.n_in, EMB_DIM], feats, out)?;
                     if out.len() < m.n_out {
                         bail!("模型 {} 輸出長度 {}，預期 {}", m.name, out.len(), m.n_out);
                     }
@@ -271,7 +291,7 @@ impl OwwModel {
                 }
                 let end = rows - 8 * i;
                 let win = &self.mel_buf[(end - WINDOW) * MEL_BINS..end * MEL_BINS];
-                run_into(&mut self.emb, &[1, WINDOW, MEL_BINS, 1], win, &mut self.tmp)?;
+                self.emb.run_into(&[1, WINDOW, MEL_BINS, 1], win, &mut self.tmp)?;
                 if self.tmp.len() != EMB_DIM {
                     bail!("embedding 模型輸出長度 {}，預期 {EMB_DIM}", self.tmp.len());
                 }
@@ -301,7 +321,7 @@ impl OwwModel {
         let avail = self.raw.len().min(RAW_MAX);
         let take = (n + 3 * 160).min(avail);
         let audio = &self.raw[self.raw.len() - take..];
-        run_into(&mut self.mel, &[1, take], audio, &mut self.tmp)?;
+        self.mel.run_into(&[1, take], audio, &mut self.tmp)?;
         if !self.tmp.len().is_multiple_of(MEL_BINS) {
             bail!(
                 "melspectrogram 模型輸出長度 {} 不是 32 的倍數",
@@ -318,7 +338,7 @@ impl OwwModel {
     fn embed_clip(&mut self, x: &[i16]) -> Result<Vec<f32>> {
         let audio: Vec<f32> = x.iter().map(|&v| v as f32).collect();
         let mut spec = Vec::new();
-        run_into(&mut self.mel, &[1, audio.len()], &audio, &mut spec)?;
+        self.mel.run_into(&[1, audio.len()], &audio, &mut spec)?;
         spec.iter_mut().for_each(|v| *v = *v / 10.0 + 2.0);
         let frames = spec.len() / MEL_BINS;
         let mut batch = Vec::new();
@@ -333,7 +353,7 @@ impl OwwModel {
             bail!("warm-up 音訊太短");
         }
         let mut out = Vec::new();
-        run_into(&mut self.emb, &[b, WINDOW, MEL_BINS, 1], &batch, &mut out)?;
+        self.emb.run_into(&[b, WINDOW, MEL_BINS, 1], &batch, &mut out)?;
         if out.len() != b * EMB_DIM {
             bail!("embedding 模型輸出長度 {}，預期 {}", out.len(), b * EMB_DIM);
         }
@@ -347,15 +367,4 @@ fn trim_rows(buf: &mut Vec<f32>, width: usize, max_rows: usize) {
         let cut = buf.len() - max_rows * width;
         buf.drain(..cut);
     }
-}
-
-/// Run a single-input session on an f32 tensor; the first output is
-/// written to `out` (cleared first).
-fn run_into(s: &mut Session, shape: &[usize], data: &[f32], out: &mut Vec<f32>) -> Result<()> {
-    let input = TensorRef::from_array_view((shape.to_vec(), data)).map_err(oe)?;
-    let outputs = s.run(ort::inputs![input]).map_err(oe)?;
-    let (_, v) = outputs[0].try_extract_tensor::<f32>().map_err(oe)?;
-    out.clear();
-    out.extend_from_slice(v);
-    Ok(())
 }

@@ -34,7 +34,12 @@ fn white_echo(secs: f64, delay: usize, seed: u64) -> (Vec<f32>, Vec<f32>) {
 fn tail_erle(mic: &[f32], out: &[f32], tail_s: f64) -> f64 {
     let n = out.len();
     let s = n - (tail_s * FS as f64) as usize;
-    let p = |v: &[f32]| v.iter().map(|&a| (a as f64).powi(2)).sum::<f64>().max(1e-20);
+    let p = |v: &[f32]| {
+        v.iter()
+            .map(|&a| (a as f64).powi(2))
+            .sum::<f64>()
+            .max(1e-20)
+    };
     10.0 * (p(&mic[s..n]) / p(&out[s..n])).log10()
 }
 
@@ -54,9 +59,17 @@ fn engine_lists() {
     assert!(av.contains(&"nlms"));
     for e in &av {
         assert!(ENGINES.contains(e));
-        assert_eq!(make_engine(e, &EngineOptions::default()).unwrap().name(), *e);
+        assert_eq!(
+            make_engine(e, &EngineOptions::default()).unwrap().name(),
+            *e
+        );
     }
-    assert_eq!(make_engine("auto", &EngineOptions::default()).unwrap().name(), av[0]);
+    assert_eq!(
+        make_engine("auto", &EngineOptions::default())
+            .unwrap()
+            .name(),
+        av[0]
+    );
     assert!(make_engine("bogus", &EngineOptions::default()).is_err());
 }
 
@@ -69,9 +82,16 @@ fn default_options() {
 
 #[test]
 fn passthrough_is_identity_with_gain_and_clip() {
-    let mic: Vec<f32> = (0..FRAME * 3).map(|i| ((i as f32) * 0.01).sin() * 0.9).collect();
+    let mic: Vec<f32> = (0..FRAME * 3)
+        .map(|i| ((i as f32) * 0.01).sin() * 0.9)
+        .collect();
     let r = vec![0.3f32; FRAME * 3];
-    let mut p = AecProcessor::new(make_engine("off", &EngineOptions::default()).unwrap(), 0.0, 0.0, 0.0);
+    let mut p = AecProcessor::new(
+        make_engine("off", &EngineOptions::default()).unwrap(),
+        0.0,
+        0.0,
+        0.0,
+    );
     assert_eq!(p.engine_name(), "off");
     assert_eq!(p.process_signal(&mic, &r).unwrap(), mic);
     // +6 dB gain clips at 1
@@ -81,13 +101,15 @@ fn passthrough_is_identity_with_gain_and_clip() {
         let want = (m * 10f64.powf(6.0 / 20.0) as f32).clamp(-1.0, 1.0);
         assert!((o - want).abs() < 1e-6);
     }
-    assert!(out.iter().any(|&v| v == 1.0));
+    assert!(out.contains(&1.0));
 }
 
 #[test]
 fn process_signal_truncates_to_frames() {
     let mut p = AecProcessor::new(Box::new(PassThrough), 0.0, 0.0, 0.0);
-    let out = p.process_signal(&vec![0.1; 1000], &vec![0.0; 1200]).unwrap();
+    let out = p
+        .process_signal(&vec![0.1; 1000], &vec![0.0; 1200])
+        .unwrap();
     assert_eq!(out.len(), 2 * FRAME);
 }
 
@@ -106,13 +128,22 @@ fn rejects_wrong_block_sizes() {
         let mut eng = make_engine(e, &EngineOptions::default()).unwrap();
         if e != "off" {
             let mut out = vec![0.0; 160];
-            assert!(eng.process(&[0.0; 160], &[0.0; 160], &mut out).is_err(), "{e}");
+            assert!(
+                eng.process(&[0.0; 160], &[0.0; 160], &mut out).is_err(),
+                "{e}"
+            );
             let mut out = vec![0.0; FRAME];
-            assert!(eng.process(&[0.0; FRAME], &[0.0; 100], &mut out).is_err(), "{e}");
+            assert!(
+                eng.process(&[0.0; FRAME], &[0.0; 100], &mut out).is_err(),
+                "{e}"
+            );
         }
         let mut p = AecProcessor::new(eng, 0.0, 0.0, 0.0);
         let mut out = vec![0.0; 960];
-        assert!(p.process(&[0.0; 960], &[0.0; 960], &mut out).is_err(), "{e}");
+        assert!(
+            p.process(&[0.0; 960], &[0.0; 960], &mut out).is_err(),
+            "{e}"
+        );
     }
 }
 
@@ -137,7 +168,10 @@ fn nlms_cancels_white_noise_echo() {
 #[test]
 fn speex_cancels_white_noise_echo() {
     for ns in [false, true] {
-        let opts = EngineOptions { noise_suppression: ns, ..Default::default() };
+        let opts = EngineOptions {
+            noise_suppression: ns,
+            ..Default::default()
+        };
         let e = erle_for("speex", &opts);
         assert!(e > 8.0, "ns={ns}: ERLE {e:.1} dB");
     }
@@ -155,13 +189,19 @@ fn webrtc_cancels_white_noise_echo() {
 fn bench_frame_cost() {
     let (mic, x) = white_echo(4.0, 240, 3);
     for e in available_engines() {
-        let mut p = AecProcessor::new(make_engine(e, &EngineOptions::default()).unwrap(), 0.0, 0.0, 0.0);
+        let mut p = AecProcessor::new(
+            make_engine(e, &EngineOptions::default()).unwrap(),
+            0.0,
+            0.0,
+            0.0,
+        );
         let mut out = vec![0.0; FRAME];
         let frames = mic.len() / FRAME;
         let t = Instant::now();
         for f in 0..frames {
             let s = f * FRAME;
-            p.process(&mic[s..s + FRAME], &x[s..s + FRAME], &mut out).unwrap();
+            p.process(&mic[s..s + FRAME], &x[s..s + FRAME], &mut out)
+                .unwrap();
         }
         let us = t.elapsed().as_secs_f64() * 1e6 / frames as f64;
         println!("[bench] {e:>6}: {us:8.1} us / 10 ms frame");
