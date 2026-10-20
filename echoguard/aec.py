@@ -177,13 +177,17 @@ class NlmsAec(_Resampled):
 ENGINES = ("webrtc", "speex", "nlms", "off")
 
 
-def available_engines() -> list[str]:
+def available_engines(first_only: bool = False) -> list[str]:
+    """Engines that load, best first.  ``first_only`` stops at the first one,
+    so "auto" does not load the native libraries of engines it won't use."""
     out = []
     try:
         from livekit import rtc  # noqa: F401
         out.append("webrtc")
     except Exception:
         pass
+    if first_only and out:
+        return out
     try:
         import pyaec  # noqa: F401
         out.append("speex")
@@ -196,7 +200,7 @@ def available_engines() -> list[str]:
 def make_engine(name: str = "auto", *, noise_suppression=True, high_pass_filter=True,
                 auto_gain_control=False, filter_ms=300) -> EchoCanceller:
     if name == "auto":
-        name = available_engines()[0]
+        name = available_engines(first_only=True)[0]
     if name == "webrtc":
         return WebRtcAec(noise_suppression, high_pass_filter, auto_gain_control)
     if name == "speex":

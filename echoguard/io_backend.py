@@ -13,6 +13,7 @@ down-mixed on input and duplicated on output.
 from __future__ import annotations
 
 import sys
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -59,12 +60,26 @@ class AudioBackend:
         raise NotImplementedError
 
 
-def thread_init() -> None:
-    """Make sure COM is initialised for the calling thread (Windows)."""
+def thread_init() -> bool:
+    """Make sure COM is initialised for the calling thread (Windows).
+    True when this call initialised it, so :func:`thread_done` must undo it."""
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.ole32.CoInitializeEx(None, 0)  # COINIT_MULTITHREADED
+            # S_OK / S_FALSE both need a matching CoUninitialize
+            return ctypes.windll.ole32.CoInitializeEx(None, 0) in (0, 1)  # COINIT_MULTITHREADED
+        except Exception:
+            pass
+    return False
+
+
+def thread_done(initialised: bool) -> None:
+    """Release this thread's COM reference: every start / stop spawns new
+    threads, and an unbalanced CoInitializeEx leaks per-thread COM state."""
+    if initialised:
+        try:
+            import ctypes
+            ctypes.windll.ole32.CoUninitialize()
         except Exception:
             pass
 
@@ -110,9 +125,26 @@ class _SCOutput(OutputStream):
         self.channels = max(1, int(spk.channels))
         self._ctx = spk.player(samplerate=FS, channels=self.channels, blocksize=blocksize)
         self._pl = self._ctx.__enter__()
+        try:
+            self._size = int(self._pl.buffersize)
+        except Exception:
+            self._size = 0
+
+    def _wait_for_room(self, n):
+        """soundcard's play() polls the device every 1 ms while its buffer is
+        full (two COM calls per poll).  Sleep once until the block fits."""
+        if not self._size:
+            return
+        try:
+            short = min(n, self._size) - (self._size - int(self._pl.currentpadding))
+        except Exception:
+            return
+        if short > 0:
+            time.sleep(short / FS)
 
     def write(self, x):
         x = np.asarray(x, np.float32)
+        self._wait_for_room(len(x))
         if self.channels > 1:
             x = np.repeat(x[:, None], self.channels, axis=1)
         self._pl.play(x)

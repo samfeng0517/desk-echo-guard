@@ -117,9 +117,8 @@ class ElasticBuffer:
         e = self._level_f - self.target
         # anti-windup: an underrunning producer says nothing about its clock
         if len(self._data) - self._pos >= n:
-            self._integ = float(np.clip(self._integ + self.ki * e * dt,
-                                        -self.max_dev, self.max_dev))
-        u = float(np.clip(self.kp * e + self._integ, -self.max_dev, self.max_dev))
+            self._integ = min(self.max_dev, max(-self.max_dev, self._integ + self.ki * e * dt))
+        u = min(self.max_dev, max(-self.max_dev, self.kp * e + self._integ))
         self.ratio = 1.0 + u
 
         p = self._pos + self.ratio * np.arange(n)
@@ -167,15 +166,26 @@ class ElasticBuffer:
 
 
 class DelayLine:
-    """Integer-sample streaming delay."""
+    """Integer-sample streaming delay (ring buffer: a block costs O(block),
+    not O(delay), which matters for the ~1 s Siri-guard lookahead)."""
 
     def __init__(self, delay: int):
         self.delay = int(max(0, delay))
         self._buf = np.zeros(self.delay, dtype=np.float32)
+        self._w = 0
 
     def process(self, x: np.ndarray) -> np.ndarray:
-        if self.delay == 0:
-            return np.asarray(x, dtype=np.float32)
-        buf = np.concatenate((self._buf, np.asarray(x, dtype=np.float32)))
-        out, self._buf = buf[:len(x)], buf[len(x):]
+        x = np.asarray(x, dtype=np.float32)
+        d, n = self.delay, len(x)
+        if d == 0:
+            return x
+        if n >= d:
+            out = np.concatenate((self._buf[self._w:], self._buf[:self._w], x[:n - d]))
+            self._buf[:] = x[n - d:]
+            self._w = 0
+            return out
+        idx = np.arange(self._w, self._w + n) % d if self._w + n > d else slice(self._w, self._w + n)
+        out = self._buf[idx].copy()
+        self._buf[idx] = x
+        self._w = (self._w + n) % d
         return out

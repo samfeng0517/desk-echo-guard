@@ -26,7 +26,7 @@ from . import FS, FRAME, vcable
 from .aec import AecProcessor, make_engine
 from .buffers import ElasticBuffer
 from .delay import estimate_delay_ms
-from .io_backend import AudioBackend, thread_init
+from .io_backend import AudioBackend, thread_done, thread_init
 from .metrics import db
 
 
@@ -127,12 +127,14 @@ class EchoGuardApp:
     # --------------------------------------------------------------- threads
     def _spawn(self, name, fn, *args):
         def run():
-            thread_init()
+            com = thread_init()
             try:
                 fn(*args)
             except BaseException as e:  # propagate to main thread
                 self.errors.append(e)
                 self.stop_event.set()
+            finally:
+                thread_done(com)
         t = threading.Thread(target=run, name=name, daemon=True)
         self.threads.append(t)
         t.start()
@@ -156,7 +158,7 @@ class EchoGuardApp:
         acc = np.zeros(0, np.float32)
         while not self.stop_event.is_set():
             x = mic.read(self.s.blocksize)
-            acc = np.concatenate((acc, x))
+            acc = np.concatenate((acc, x)) if len(acc) else x
             while len(acc) >= FRAME:
                 m, acc = acc[:FRAME], acc[FRAME:]
                 r = self.ref_buf.pop(FRAME)
@@ -168,7 +170,7 @@ class EchoGuardApp:
                 self.mic_peak = max(self.mic_peak, float(np.max(np.abs(m))))
                 a = 0.05
                 for k, v in (("mic", m), ("ref", r), ("out", y)):
-                    self.levels[k] = (1 - a) * self.levels[k] + a * db(float(np.mean(v * v)))
+                    self.levels[k] = (1 - a) * self.levels[k] + a * db(float(np.dot(v, v)) / FRAME)
                 if self.taps:
                     self.taps["mic"].add(m)
                     self.taps["ref"].add(r)

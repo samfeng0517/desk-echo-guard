@@ -16,7 +16,7 @@ from echoguard.metrics import (align, band_energy_db, db, energy, envelope_corre
                                log_spectral_distance, stoi)
 from echoguard.siri_guard import (PROFILES, GuardConfig, NotchBank, NotchConfig,
                                   OracleDetector, SibilantDetector, SiriGuard,
-                                  design_notch_fir, make_guard)
+                                  design_notch_fir, make_guard, notch_target_gain)
 from echoguard.signals import synth_speech
 from conftest import report
 
@@ -40,6 +40,24 @@ def test_notch_response(name):
     for f in (200, 500, 7500, 10000):
         if all(not (lo - 300 < f < hi + 300) for lo, hi in cfg.bands):
             assert abs(_gain_db(h, f)) < 0.5, (name, f)
+
+
+@pytest.mark.parametrize("name", sorted(PROFILES))
+def test_design_matches_scipy_firwin2(name):
+    cfg = NotchConfig.profile(name)
+    f = np.linspace(0, FS / 2, 4097)
+    ref = signal.firwin2(cfg.numtaps, f, notch_target_gain(cfg, f), fs=FS,
+                         window=("kaiser", 6.0))
+    assert np.allclose(design_notch_fir(cfg), ref, atol=1e-12)
+
+
+def test_streaming_equals_lfilter():
+    x = synth_speech(1.0, seed=5)
+    nb = NotchBank()
+    y = np.concatenate([nb.process(x[i:i + n]) for i, n in
+                        zip(range(0, len(x), 480), [480, 480, 480] * 40)])
+    ref = signal.lfilter(nb.h, 1.0, x[:len(y)].astype(np.float64))
+    assert np.allclose(y, ref, atol=1e-5)
 
 
 def test_streaming_equals_offline():

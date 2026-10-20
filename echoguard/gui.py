@@ -685,7 +685,7 @@ class EchoGuardGUI:
                 self.log(f"錯誤：{err}")
                 self.stop()
                 messagebox.showerror("Desk Echo Guard", f"執行中發生錯誤，已停止：\n{err}")
-            else:
+            elif self.root.state() not in ("withdrawn", "iconic"):  # no redraws in the tray
                 self._update_meters(app)
         self.root.after(200, self._poll)
 

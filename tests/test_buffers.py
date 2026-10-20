@@ -13,6 +13,21 @@ def test_delay_line_blocks():
     assert np.array_equal(y[37:], x[:-37])
 
 
+def test_delay_line_mixed_block_sizes():
+    """Ring buffer: blocks shorter / longer than the delay, wrapping."""
+    x = np.random.default_rng(0).standard_normal(20000).astype(np.float32)
+    for delay in (1, 7, 480, 4800):
+        d = DelayLine(delay)
+        sizes = [480, 1, 333, 6000, 7]
+        out, i, k = [], 0, 0
+        while i < len(x):
+            out.append(d.process(x[i:i + sizes[k % len(sizes)]]))
+            i += sizes[k % len(sizes)]
+            k += 1
+        y = np.concatenate(out)
+        assert np.array_equal(y, np.concatenate((np.zeros(delay, np.float32), x))[:len(x)])
+
+
 def test_elastic_passthrough_is_transparent_without_drift():
     b = ElasticBuffer(960, clock=lambda: 0.0)
     x = (0.2 * np.random.default_rng(0).standard_normal(48000 * 3)).astype(np.float32)
