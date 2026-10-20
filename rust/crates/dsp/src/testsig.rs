@@ -113,7 +113,11 @@ pub fn synth_speech_with(dur_s: f64, f0: f64, seed: u64, pause_prob: f64) -> Vec
             cnt += 1;
         }
     }
-    let rms = if cnt > 0 { (acc / cnt as f64).sqrt() } else { 1.0 };
+    let rms = if cnt > 0 {
+        (acc / cnt as f64).sqrt()
+    } else {
+        1.0
+    };
     out.iter().map(|v| (v * 0.05 / rms) as f32).collect()
 }
 
@@ -121,6 +125,8 @@ fn voiced_segment(rng: &mut StdRng, l: usize, f0: f64) -> Vec<f64> {
     let fs = FS as f64;
     // intonation contour (+-30 %), per-period jitter, shimmer
     let rate = rng.gen_range(0.5..2.0);
+    // 6.28 as in signals.py (not exactly 2 pi)
+    #[allow(clippy::approx_constant)]
     let ph0 = rng.gen_range(0.0..6.28);
     let mut phase = 0.0;
     let mut k_prev = 0.0;
@@ -170,7 +176,13 @@ fn voiced_segment(rng: &mut StdRng, l: usize, f0: f64) -> Vec<f64> {
             let r = (-std::f64::consts::PI * bw / fs).exp();
             let th = 2.0 * std::f64::consts::PI * fc / fs;
             tmp.resize(part.len(), 0.0);
-            lfilter_into(&[1.0 - r], &[1.0, -2.0 * r * th.cos(), r * r], &part, &mut zis[q], &mut tmp);
+            lfilter_into(
+                &[1.0 - r],
+                &[1.0, -2.0 * r * th.cos(), r * r],
+                &part,
+                &mut zis[q],
+                &mut tmp,
+            );
             std::mem::swap(&mut part, &mut tmp);
         }
         seg[edges[j]..edges[j + 1]].copy_from_slice(&part);
@@ -363,7 +375,11 @@ mod tests {
     fn synth_speech_statistics() {
         let x = synth_speech(10.0, 0);
         assert_eq!(x.len(), 480_000);
-        let active: Vec<f64> = x.iter().filter(|v| v.abs() > 1e-6).map(|&v| v as f64).collect();
+        let active: Vec<f64> = x
+            .iter()
+            .filter(|v| v.abs() > 1e-6)
+            .map(|&v| v as f64)
+            .collect();
         let rms = (active.iter().map(|v| v * v).sum::<f64>() / active.len() as f64).sqrt();
         assert!((rms - 0.05).abs() < 1e-4, "{rms}");
         let frac = active.len() as f64 / x.len() as f64;
@@ -376,7 +392,10 @@ mod tests {
         let hi = band_energy_db(&x, 3000.0, 8000.0);
         // (Python, seeds 0-3: 13.5 .. 15.8 dB)
         assert!(lo - hi > 10.0 && lo - hi < 20.0, "lo {lo} hi {hi}");
-        println!("synth_speech: active {frac:.3} peak {peak:.3} lo-hi {:.2}", lo - hi);
+        println!(
+            "synth_speech: active {frac:.3} peak {peak:.3} lo-hi {:.2}",
+            lo - hi
+        );
         // deterministic for a seed, different across seeds
         assert_eq!(x, synth_speech(10.0, 0));
         assert_ne!(x, synth_speech(10.0, 1));
@@ -390,10 +409,13 @@ mod tests {
     fn room_ir_shape() {
         let h = room_ir(&RoomIr::default());
         assert_eq!(h.len(), 7200);
-        let (k, peak) = h
-            .iter()
-            .enumerate()
-            .fold((0, 0.0f32), |(bk, bv), (i, &v)| if v.abs() > bv { (i, v.abs()) } else { (bk, bv) });
+        let (k, peak) = h.iter().enumerate().fold((0, 0.0f32), |(bk, bv), (i, &v)| {
+            if v.abs() > bv {
+                (i, v.abs())
+            } else {
+                (bk, bv)
+            }
+        });
         assert!((peak - 0.5).abs() < 1e-6);
         assert!((143..=150).contains(&k), "direct path at {k}");
         assert!(h[..140].iter().all(|v| v.abs() < 1e-3));
@@ -419,7 +441,9 @@ mod tests {
         let erl = db(energy(&sc.reference[..a])) - db(energy(&sc.echo[..a]));
         assert!(erl > -4.0 && erl < 2.0, "{erl}");
         // noise floor ~ -60 dB in the near-only part is dominated by speech
-        let nm: Vec<f32> = (a..b).map(|i| sc.mic[i] - sc.near[i] - sc.echo[i]).collect();
+        let nm: Vec<f32> = (a..b)
+            .map(|i| sc.mic[i] - sc.near[i] - sc.echo[i])
+            .collect();
         let nd = db(energy(&nm));
         assert!((nd + 60.0).abs() < 1.0, "{nd}");
     }

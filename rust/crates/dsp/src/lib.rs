@@ -18,7 +18,9 @@ pub use elastic::{Clock, ElasticBuffer, ElasticOptions, ElasticStats};
 pub use guard::{GuardConfig, GuardMode, OracleDetector, SibilantDetector, SiriGuard};
 pub use metrics::{band_energy_db, best_lag, db, energy, erle_db};
 pub use nlms::Nlms16k;
-pub use notch::{design_notch_fir, notch_target_gain, NotchBank, NotchConfig, DEFAULT_PROFILE, PROFILES};
+pub use notch::{
+    design_notch_fir, notch_target_gain, NotchBank, NotchConfig, DEFAULT_PROFILE, PROFILES,
+};
 pub use resample::IntegerResampler;
 pub use testsig::{make_scenario, synth_speech, Scenario};
 

@@ -330,7 +330,13 @@ mod tests {
         // scipy.special.i0(6.0), np.kaiser(5, 6.0)
         assert!((bessel_i0(6.0) - 67.23440697647797).abs() < 1e-10);
         let w = kaiser(5, 6.0);
-        let want = [0.014873337104763207, 0.4829556064106269, 1.0, 0.4829556064106269, 0.014873337104763207];
+        let want = [
+            0.014873337104763207,
+            0.4829556064106269,
+            1.0,
+            0.4829556064106269,
+            0.014873337104763207,
+        ];
         for (a, b) in w.iter().zip(want) {
             assert!((a - b).abs() < 1e-12, "{a} vs {b}");
         }
@@ -398,7 +404,10 @@ mod tests {
             let cfg = NotchConfig::profile(name, None).unwrap();
             let h = design_notch_fir(&cfg);
             assert!(h.len() % 2 == 1);
-            assert!(h.iter().zip(h.iter().rev()).all(|(a, b)| (a - b).abs() < 1e-12));
+            assert!(h
+                .iter()
+                .zip(h.iter().rev())
+                .all(|(a, b)| (a - b).abs() < 1e-12));
             for &(lo, hi) in &cfg.bands {
                 // the window smears the very edges
                 for j in 0..5 {
@@ -409,7 +418,11 @@ mod tests {
             }
             // pass band untouched (< 0.5 dB) well away from every stop band
             for f in [200.0, 500.0, 7500.0, 10000.0] {
-                if cfg.bands.iter().all(|&(lo, hi)| !(lo - 300.0 < f && f < hi + 300.0)) {
+                if cfg
+                    .bands
+                    .iter()
+                    .all(|&(lo, hi)| !(lo - 300.0 < f && f < hi + 300.0))
+                {
                     assert!(gain_db(&h, f).abs() < 0.5, "{name} {f}");
                 }
             }
@@ -460,6 +473,11 @@ mod tests {
         assert_eq!(a, NotchConfig::profile("deep-wide", None).unwrap());
         assert_eq!(a, NotchConfig::default());
         assert!(NotchConfig::profile("nope", None).is_err());
-        assert_eq!(NotchConfig::profile("formant", Some(40.0)).unwrap().depth_db, 40.0);
+        assert_eq!(
+            NotchConfig::profile("formant", Some(40.0))
+                .unwrap()
+                .depth_db,
+            40.0
+        );
     }
 }

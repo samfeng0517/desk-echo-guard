@@ -351,7 +351,9 @@ mod tests {
         let r = 1.0 + ppm * 1e-6;
         let n = (seconds * fs * r) as usize + 4800;
         let x: Vec<f32> = (0..n)
-            .map(|i| (0.3 * (2.0 * std::f64::consts::PI * 440.0 * i as f64 / (fs * r)).sin()) as f32)
+            .map(|i| {
+                (0.3 * (2.0 * std::f64::consts::PI * 440.0 * i as f64 / (fs * r)).sin()) as f32
+            })
             .collect();
         let (mut t_prod, dtp, mut pp) = (0.0, 480.0 / (fs * r), 0usize);
         let steps = (seconds * 100.0) as usize;
@@ -397,8 +399,8 @@ mod tests {
                 .enumerate()
                 .map(|(i, &v)| {
                     // np.hanning (symmetric)
-                    let h = 0.5
-                        - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (m - 1) as f64).cos();
+                    let h =
+                        0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (m - 1) as f64).cos();
                     v as f64 * h
                 })
                 .collect();

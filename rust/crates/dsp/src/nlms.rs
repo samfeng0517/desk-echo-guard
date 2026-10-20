@@ -92,7 +92,9 @@ impl Nlms16k {
             Spec::E => &mut self.ef,
         };
         // lengths are fixed at construction, so this cannot fail
-        let _ = self.fwd.process_with_scratch(&mut self.t_in, out, &mut self.fwd_scratch);
+        let _ = self
+            .fwd
+            .process_with_scratch(&mut self.t_in, out, &mut self.fwd_scratch);
     }
 
     /// Normalised irfft of `self.spec` into `self.t_out` (like `np.fft.irfft`).
@@ -100,7 +102,9 @@ impl Nlms16k {
         // numpy ignores the imaginary parts of the DC / Nyquist bins
         self.spec[0].im = 0.0;
         self.spec[self.k - 1].im = 0.0;
-        let _ = self.inv.process_with_scratch(&mut self.spec, &mut self.t_out, &mut self.inv_scratch);
+        let _ =
+            self.inv
+                .process_with_scratch(&mut self.spec, &mut self.t_out, &mut self.inv_scratch);
         let s = 1.0 / (2 * self.n) as f64;
         self.t_out.iter_mut().for_each(|v| *v *= s);
     }
@@ -127,7 +131,9 @@ impl Nlms16k {
         self.x[h * k..(h + 1) * k].copy_from_slice(&self.spec);
 
         // echo estimate Y = sum_a W[a] * X[a]
-        self.spec.iter_mut().for_each(|v| *v = Complex64::new(0.0, 0.0));
+        self.spec
+            .iter_mut()
+            .for_each(|v| *v = Complex64::new(0.0, 0.0));
         for a in 0..p {
             let slot = (h + a) % p;
             let wr = &self.w[a * k..(a + 1) * k];
@@ -237,12 +243,23 @@ mod tests {
             *v = 0.1 * (-(i as f32 - 33.0) / 60.0).exp() * if i % 2 == 0 { 1.0 } else { -1.0 };
         }
         let d: Vec<f32> = (0..n)
-            .map(|i| hpath.iter().enumerate().filter(|(j, _)| *j <= i).map(|(j, &h)| h * x[i - j]).sum())
+            .map(|i| {
+                hpath
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j <= i)
+                    .map(|(j, &h)| h * x[i - j])
+                    .sum()
+            })
             .collect();
         let mut f = Nlms16k::new(100);
         let mut out = vec![0.0; n];
         for s in (0..n).step_by(NLMS_BLOCK) {
-            f.process(&d[s..s + NLMS_BLOCK], &x[s..s + NLMS_BLOCK], &mut out[s..s + NLMS_BLOCK]);
+            f.process(
+                &d[s..s + NLMS_BLOCK],
+                &x[s..s + NLMS_BLOCK],
+                &mut out[s..s + NLMS_BLOCK],
+            );
         }
         let tail = n - 16_000 * 2;
         let pd: f64 = d[tail..].iter().map(|&v| (v as f64).powi(2)).sum();

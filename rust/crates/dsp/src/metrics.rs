@@ -83,9 +83,8 @@ pub fn snr_db(reference: &[f32], test: &[f32], align_max: usize) -> f64 {
         let n = reference.len().min(test.len());
         (&reference[..n], &test[..n])
     };
-    let dot = |x: &[f32], y: &[f32]| -> f64 {
-        x.iter().zip(y).map(|(&p, &q)| p as f64 * q as f64).sum()
-    };
+    let dot =
+        |x: &[f32], y: &[f32]| -> f64 { x.iter().zip(y).map(|(&p, &q)| p as f64 * q as f64).sum() };
     let g = dot(r, t) / dot(r, r).max(1e-20);
     let (mut es, mut ee) = (0.0, 0.0);
     for (&p, &q) in r.iter().zip(t) {
@@ -110,7 +109,11 @@ pub fn welch(x: &[f32], nperseg: usize) -> (Vec<f64>, Vec<f64>) {
     let mut spec = fft.make_output_vec();
     let nbins = spec.len();
     let mut psd = vec![0.0; nbins];
-    let nseg = if x.len() >= nper { (x.len() - nover) / step } else { 0 };
+    let nseg = if x.len() >= nper {
+        (x.len() - nover) / step
+    } else {
+        0
+    };
     for s in 0..nseg {
         let seg = &x[s * step..s * step + nper];
         let mean = seg.iter().map(|&v| v as f64).sum::<f64>() / nper as f64;
@@ -123,7 +126,7 @@ pub fn welch(x: &[f32], nperseg: usize) -> (Vec<f64>, Vec<f64>) {
             *p += c.norm_sqr() * scale;
         }
     }
-    let last = if nper % 2 == 0 { nbins - 1 } else { nbins };
+    let last = if nper & 1 == 0 { nbins - 1 } else { nbins };
     for (k, p) in psd.iter_mut().enumerate() {
         *p /= nseg.max(1) as f64;
         if k > 0 && k < last {
@@ -137,7 +140,11 @@ pub fn welch(x: &[f32], nperseg: usize) -> (Vec<f64>, Vec<f64>) {
 /// Energy in `[lo, hi)` Hz from a Welch PSD (nperseg 4096), dB.
 pub fn band_energy_db(x: &[f32], lo: f64, hi: f64) -> f64 {
     let (f, p) = welch(x, 4096);
-    db(f.iter().zip(&p).filter(|(&f, _)| f >= lo && f < hi).map(|(_, &p)| p).sum())
+    db(f.iter()
+        .zip(&p)
+        .filter(|(&f, _)| f >= lo && f < hi)
+        .map(|(_, &p)| p)
+        .sum())
 }
 
 /// `scipy.signal.stft(x, fs, nperseg)` (noverlap = nperseg/2, zero boundary,
@@ -161,7 +168,11 @@ pub fn stft(x: &[f32], nperseg: usize) -> (Vec<f64>, Vec<Vec<Complex<f64>>>) {
     let mut buf = fft.make_input_vec();
     let frames = (0..nseg)
         .map(|s| {
-            for ((d, &v), w) in buf.iter_mut().zip(&ext[s * step..s * step + nperseg]).zip(&win) {
+            for ((d, &v), w) in buf
+                .iter_mut()
+                .zip(&ext[s * step..s * step + nperseg])
+                .zip(&win)
+            {
                 *d = v * w;
             }
             let mut spec = fft.make_output_vec();
@@ -170,7 +181,9 @@ pub fn stft(x: &[f32], nperseg: usize) -> (Vec<f64>, Vec<Vec<Complex<f64>>>) {
             spec
         })
         .collect();
-    let freqs = (0..nperseg / 2 + 1).map(|k| k as f64 * fs / nperseg as f64).collect();
+    let freqs = (0..nperseg / 2 + 1)
+        .map(|k| k as f64 * fs / nperseg as f64)
+        .collect();
     (freqs, frames)
 }
 
@@ -214,7 +227,10 @@ pub fn log_spectral_distance(a: &[f32], b: &[f32], lo: f64, hi: Option<f64>) -> 
 fn mean_std(x: &[f64]) -> (f64, f64) {
     let n = x.len() as f64;
     let m = x.iter().sum::<f64>() / n;
-    (m, (x.iter().map(|v| (v - m).powi(2)).sum::<f64>() / n).sqrt())
+    (
+        m,
+        (x.iter().map(|v| (v - m).powi(2)).sum::<f64>() / n).sqrt(),
+    )
 }
 
 /// Cheap intelligibility proxy (STOI-like): mean correlation of 1/3-octave
@@ -232,7 +248,9 @@ pub fn envelope_correlation(reference: &[f32], test: &[f32]) -> f64 {
             continue;
         }
         let (flo, fhi) = (fc * 2f64.powf(-1.0 / 6.0), fc * 2f64.powf(1.0 / 6.0));
-        let sel: Vec<usize> = (0..f.len()).filter(|&k| f[k] >= flo && f[k] < fhi).collect();
+        let sel: Vec<usize> = (0..f.len())
+            .filter(|&k| f[k] >= flo && f[k] < fhi)
+            .collect();
         let env = |frames: &[Vec<Complex<f64>>]| -> Vec<f64> {
             frames
                 .iter()
@@ -255,7 +273,12 @@ pub fn envelope_correlation(reference: &[f32], test: &[f32]) -> f64 {
                 cs.push(0.0);
                 continue;
             }
-            let cov = a.iter().zip(b).map(|(p, q)| (p - ma) * (q - mb)).sum::<f64>() / seg as f64;
+            let cov = a
+                .iter()
+                .zip(b)
+                .map(|(p, q)| (p - ma) * (q - mb))
+                .sum::<f64>()
+                / seg as f64;
             cs.push(cov / (sa * sb));
         }
     }
@@ -278,7 +301,9 @@ mod tests {
             .map(|k| {
                 let k = k as f64;
                 ((tau * 440.0 * k / fs).sin()
-                    + 0.5 * (tau * 5000.0 * k / fs + 0.3).sin() * (1.0 + (tau * 3.0 * k / fs).sin())
+                    + 0.5
+                        * (tau * 5000.0 * k / fs + 0.3).sin()
+                        * (1.0 + (tau * 3.0 * k / fs).sin())
                     + 0.2 * (tau * (200.0 + 0.05 * k) * k / fs).sin()) as f32
             })
             .collect();
@@ -302,12 +327,28 @@ mod tests {
     fn match_scipy_reference_numbers() {
         let (x, y) = signals();
         close(band_energy_db(&x, 3800.0, 4200.0), -38.36833408287208, 1e-4);
-        close(band_energy_db(&x, 4900.0, 5100.0), -17.933837787173065, 1e-4);
+        close(
+            band_energy_db(&x, 4900.0, 5100.0),
+            -17.933837787173065,
+            1e-4,
+        );
         // shorter than nperseg -> one segment of the whole signal
-        close(band_energy_db(&y[..3000], 100.0, 1000.0), -16.77938790675448, 1e-4);
+        close(
+            band_energy_db(&y[..3000], 100.0, 1000.0),
+            -16.77938790675448,
+            1e-4,
+        );
         // numpy computes these two in float32
-        close(log_spectral_distance(&x, &y, 0.0, None), 6.18387508392334, 2e-3);
-        close(log_spectral_distance(&x, &y, 100.0, Some(4000.0)), 1.3485546112060547, 2e-3);
+        close(
+            log_spectral_distance(&x, &y, 0.0, None),
+            6.18387508392334,
+            2e-3,
+        );
+        close(
+            log_spectral_distance(&x, &y, 100.0, Some(4000.0)),
+            1.3485546112060547,
+            2e-3,
+        );
         close(envelope_correlation(&x, &y), 0.9517404477661214, 1e-4);
         close(snr_db(&x, &y, 0), 22.472237788499392, 1e-6);
         let mut yd = vec![0.0f32; 37];

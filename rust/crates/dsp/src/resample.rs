@@ -85,6 +85,8 @@ impl IntegerResampler {
         (self.h.len() - 1) / 2
     }
 
+    /// The prototype low-pass (not the polyphase table).
+    #[allow(clippy::misnamed_getters)]
     pub fn taps(&self) -> &[f64] {
         &self.h
     }

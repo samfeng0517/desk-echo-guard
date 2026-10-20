@@ -13,8 +13,12 @@ pub fn lfilter_into(b: &[f64], a: &[f64], x: &[f64], zi: &mut [f64], out: &mut [
     assert_eq!(zi.len(), m - 1, "zi length");
     assert_eq!(x.len(), out.len());
     let a0 = a[0];
-    let bn: Vec<f64> = (0..m).map(|i| b.get(i).copied().unwrap_or(0.0) / a0).collect();
-    let an: Vec<f64> = (0..m).map(|i| a.get(i).copied().unwrap_or(0.0) / a0).collect();
+    let bn: Vec<f64> = (0..m)
+        .map(|i| b.get(i).copied().unwrap_or(0.0) / a0)
+        .collect();
+    let an: Vec<f64> = (0..m)
+        .map(|i| a.get(i).copied().unwrap_or(0.0) / a0)
+        .collect();
     for (o, &v) in out.iter_mut().zip(x) {
         let y = bn[0] * v + if m > 1 { zi[0] } else { 0.0 };
         for k in 1..m {
@@ -117,7 +121,7 @@ pub fn irfft(spec: &[Complex<f64>], nfft: usize) -> Vec<f64> {
     let ifft = planner.plan_fft_inverse(nfft);
     let mut s = spec.to_vec();
     s[0].im = 0.0;
-    if nfft % 2 == 0 {
+    if nfft & 1 == 0 {
         s[nfft / 2].im = 0.0;
     }
     let mut out = ifft.make_output_vec();

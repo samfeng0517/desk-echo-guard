@@ -426,7 +426,9 @@ impl SiriGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::{align, band_energy_db, db, energy, envelope_correlation, log_spectral_distance};
+    use crate::metrics::{
+        align, band_energy_db, db, energy, envelope_correlation, log_spectral_distance,
+    };
     use crate::testsig::{synth_speech, synth_speech_with};
     use rand::{rngs::StdRng, SeedableRng};
     use rand_distr::{Distribution, StandardNormal};
@@ -489,7 +491,10 @@ mod tests {
         // FIR half-length margin
         let outside = (0..(a - r - 700) as usize).chain((b + r + 700) as usize..x.len());
         let max_out = outside.map(|i| (y[i] - x[i]).abs()).fold(0.0f32, f32::max);
-        assert!(max_out < 1e-4, "audio outside the phrase must be bit-identical-ish: {max_out}");
+        assert!(
+            max_out < 1e-4,
+            "audio outside the phrase must be bit-identical-ish: {max_out}"
+        );
         let (sx, sy) = (&x[a_u..b_u], &y[a_u..b_u]);
         let drop = g
             .notch_config()
@@ -592,7 +597,11 @@ mod tests {
             .collect();
         let hiss = Sos::new(&HISS_SOS).process(&noise);
         let sd = crate::filters::std(&hiss);
-        let onsets = [FS / 2, (1.5 * FS as f64) as usize, (2.4 * FS as f64) as usize];
+        let onsets = [
+            FS / 2,
+            (1.5 * FS as f64) as usize,
+            (2.4 * FS as f64) as usize,
+        ];
         for &o in &onsets {
             for (k, &h) in hiss.iter().enumerate() {
                 x[o + k] += (0.1 * h / sd) as f32;
@@ -612,7 +621,11 @@ mod tests {
         // speech with its high band removed (no /s/ energy) must not trigger
         let vowel = synth_speech_with(3.0, 120.0, 8, 0.0);
         let v64: Vec<f64> = vowel.iter().map(|&v| v as f64).collect();
-        let voiced: Vec<f32> = Sos::new(&LP_SOS).process(&v64).iter().map(|&v| v as f32).collect();
+        let voiced: Vec<f32> = Sos::new(&LP_SOS)
+            .process(&v64)
+            .iter()
+            .map(|&v| v as f32)
+            .collect();
         let mut det2 = SibilantDetector::default();
         let n2: usize = voiced
             .chunks(480)

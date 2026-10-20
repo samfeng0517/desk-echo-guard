@@ -262,7 +262,7 @@ impl OwwModel {
         }
 
         let mut processed = 0;
-        if self.accumulated >= HOP && self.accumulated % HOP == 0 {
+        if self.accumulated >= HOP && self.accumulated.is_multiple_of(HOP) {
             self.streaming_melspectrogram(self.accumulated)?;
             let rows = self.mel_buf.len() / MEL_BINS;
             for i in (0..self.accumulated / HOP).rev() {
@@ -302,7 +302,7 @@ impl OwwModel {
         let take = (n + 3 * 160).min(avail);
         let audio = &self.raw[self.raw.len() - take..];
         run_into(&mut self.mel, &[1, take], audio, &mut self.tmp)?;
-        if self.tmp.len() % MEL_BINS != 0 {
+        if !self.tmp.len().is_multiple_of(MEL_BINS) {
             bail!(
                 "melspectrogram 模型輸出長度 {} 不是 32 的倍數",
                 self.tmp.len()
