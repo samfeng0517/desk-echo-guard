@@ -44,8 +44,7 @@ pub fn make_engine() -> Arc<dyn Engine> {
     }
 }
 
-pub const ALREADY_RUNNING: &str =
-    "Desk Echo Guard 已經在執行中。請從右下角系統匣的圖示開啟視窗。";
+pub const ALREADY_RUNNING: &str = "Desk Echo Guard 已經在執行中。請從右下角系統匣的圖示開啟視窗。";
 
 pub fn run_gui(opts: GuiOptions) -> Result<()> {
     // two copies would fight over the same audio devices

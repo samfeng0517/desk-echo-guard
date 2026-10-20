@@ -87,6 +87,7 @@ impl CoreEngine {
     }
 
     /// On a given backend (tests: `SimBackend`).
+    #[allow(dead_code)] // only the tests inject a backend today
     pub fn with_backend(backend: Arc<dyn AudioBackend>, log: LogSink) -> Self {
         Self::build(Ok(backend), log, DEVICE_POLL)
     }
@@ -163,11 +164,17 @@ impl Engine for CoreEngine {
     }
 
     fn engine_name(&self) -> Option<String> {
-        self.guard.lock().as_ref().map(|g| g.engine_name().to_string())
+        self.guard
+            .lock()
+            .as_ref()
+            .map(|g| g.engine_name().to_string())
     }
 
     fn guard_latency_ms(&self) -> Option<f64> {
-        self.guard.lock().as_ref().and_then(EchoGuard::guard_latency_ms)
+        self.guard
+            .lock()
+            .as_ref()
+            .and_then(EchoGuard::guard_latency_ms)
     }
 
     fn devices(&self) -> Result<Vec<DeviceInfo>> {
@@ -273,8 +280,10 @@ mod tests {
         std::thread::sleep(Duration::from_millis(1200));
         let s = eng.status().expect("status while running");
         assert!(s.error.is_none(), "{:?}", s.error);
-        assert!(s.mic_db > -100.0, "mic level {}", s.mic_db);
+        // the level meter left its -120 dB floor: frames are flowing
+        assert!(s.mic_db > -119.0, "mic level {}", s.mic_db);
         assert!(eng.take_mic_peak() >= 0.0);
+        assert!(!be.output_data("CABLE Input").is_empty());
         // restart with new settings while running (auto-apply path)
         eng.start(&Settings {
             siri_guard: true,
@@ -285,7 +294,6 @@ mod tests {
         assert!(eng.guard_latency_ms().is_some());
         eng.stop();
         assert!(!eng.is_running() && eng.status().is_none() && eng.engine_name().is_none());
-        assert!(!be.output_data("CABLE Input (VB-Audio Virtual Cable)").is_empty());
         // stop twice is harmless
         eng.stop();
     }

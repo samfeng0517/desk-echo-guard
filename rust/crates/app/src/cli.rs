@@ -84,10 +84,18 @@ pub struct Cli {
           value_parser = ["auto", "webrtc", "speex", "nlms", "off"])]
     pub engine: Option<String>,
     /// extra delay applied to the reference (ms); see --calibrate
-    #[arg(long, help_heading = "echo cancellation", allow_negative_numbers = true)]
+    #[arg(
+        long,
+        help_heading = "echo cancellation",
+        allow_negative_numbers = true
+    )]
     pub delay_ms: Option<f64>,
     /// extra delay applied to the mic, if the reference arrives late
-    #[arg(long, help_heading = "echo cancellation", allow_negative_numbers = true)]
+    #[arg(
+        long,
+        help_heading = "echo cancellation",
+        allow_negative_numbers = true
+    )]
     pub mic_delay_ms: Option<f64>,
     #[arg(long, help_heading = "echo cancellation", value_name = "on|off",
           value_parser = parse_bool)]
@@ -101,7 +109,11 @@ pub struct Cli {
     /// speex/nlms filter length
     #[arg(long, help_heading = "echo cancellation")]
     pub filter_ms: Option<u32>,
-    #[arg(long, help_heading = "echo cancellation", allow_negative_numbers = true)]
+    #[arg(
+        long,
+        help_heading = "echo cancellation",
+        allow_negative_numbers = true
+    )]
     pub output_gain_db: Option<f64>,
     #[arg(long, help_heading = "echo cancellation")]
     pub ref_buffer_ms: Option<f64>,
@@ -129,7 +141,11 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger",
           value_parser = ["deep-wide", "apple-deep", "apple-wide", "formant"])]
     pub siri_profile: Option<String>,
-    #[arg(long, help_heading = "Hey Siri anti-trigger", allow_negative_numbers = true)]
+    #[arg(
+        long,
+        help_heading = "Hey Siri anti-trigger",
+        allow_negative_numbers = true
+    )]
     pub siri_depth_db: Option<f64>,
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub siri_lookahead_s: Option<f64>,
@@ -241,9 +257,31 @@ pub fn make_settings(cli: &Cli) -> Result<Settings> {
     macro_rules! set_opt {
         ($($f:ident),*) => {$( if let Some(v) = &cli.$f { s.$f = Some(v.clone()); } )*};
     }
-    set!(out, call_in, engine, delay_ms, mic_delay_ms, noise_suppression, high_pass, agc);
-    set!(filter_ms, output_gain_db, ref_buffer_ms, out_buffer_ms, max_ppm, blocksize);
-    set!(siri_mode, siri_threshold, siri_profile, siri_lookahead_s, stats_interval_s);
+    set!(
+        out,
+        call_in,
+        engine,
+        delay_ms,
+        mic_delay_ms,
+        noise_suppression,
+        high_pass,
+        agc
+    );
+    set!(
+        filter_ms,
+        output_gain_db,
+        ref_buffer_ms,
+        out_buffer_ms,
+        max_ppm,
+        blocksize
+    );
+    set!(
+        siri_mode,
+        siri_threshold,
+        siri_profile,
+        siri_lookahead_s,
+        stats_interval_s
+    );
     set_opt!(mic, speaker, siri_depth_db, debug_wav);
     if cli.siri_guard {
         s.siri_guard = true;
@@ -438,15 +476,57 @@ mod tests {
     #[test]
     fn every_option_maps_to_its_setting() {
         let st = make_settings(&parse(&[
-            "--mic", "m", "--speaker", "s", "--out", "o", "--call-in", "c",
-            "--engine", "speex", "--delay-ms", "-5", "--mic-delay-ms", "7",
-            "--noise-suppression", "off", "--high-pass", "No", "--agc", "ON",
-            "--filter-ms", "200", "--output-gain-db", "-3", "--ref-buffer-ms", "30",
-            "--out-buffer-ms", "50", "--max-ppm", "500", "--blocksize", "960",
-            "--siri-guard", "--siri-mode", "sibilant", "--siri-model", "a.onnx",
-            "--siri-model", "b.onnx", "--siri-threshold", "0.7", "--siri-profile",
-            "formant", "--siri-depth-db", "-30", "--siri-lookahead-s", "0.5",
-            "--debug-wav", "dbg", "--stats-interval-s", "0",
+            "--mic",
+            "m",
+            "--speaker",
+            "s",
+            "--out",
+            "o",
+            "--call-in",
+            "c",
+            "--engine",
+            "speex",
+            "--delay-ms",
+            "-5",
+            "--mic-delay-ms",
+            "7",
+            "--noise-suppression",
+            "off",
+            "--high-pass",
+            "No",
+            "--agc",
+            "ON",
+            "--filter-ms",
+            "200",
+            "--output-gain-db",
+            "-3",
+            "--ref-buffer-ms",
+            "30",
+            "--out-buffer-ms",
+            "50",
+            "--max-ppm",
+            "500",
+            "--blocksize",
+            "960",
+            "--siri-guard",
+            "--siri-mode",
+            "sibilant",
+            "--siri-model",
+            "a.onnx",
+            "--siri-model",
+            "b.onnx",
+            "--siri-threshold",
+            "0.7",
+            "--siri-profile",
+            "formant",
+            "--siri-depth-db",
+            "-30",
+            "--siri-lookahead-s",
+            "0.5",
+            "--debug-wav",
+            "dbg",
+            "--stats-interval-s",
+            "0",
         ]))
         .unwrap();
         let want = Settings {
@@ -559,7 +639,10 @@ mod tests {
     #[test]
     fn sim_options_go_together() {
         let err = run(&parse(&["--sim-mic", "a.wav"])).unwrap_err();
-        assert_eq!(err.to_string(), "--sim-mic, --sim-ref and --sim-out go together");
+        assert_eq!(
+            err.to_string(),
+            "--sim-mic, --sim-ref and --sim-out go together"
+        );
         let err = run(&parse(&["--sim-guard-in", "a.wav"])).unwrap_err();
         assert_eq!(err.to_string(), "--sim-guard-in needs --sim-guard-out");
     }

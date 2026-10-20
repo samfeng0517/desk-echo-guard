@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use crate::engine::{
-    CableAction, CableStatus, CableStatusExt, DeviceInfo, DeviceKind, Engine, LogSink, Settings, Status,
-    CABLE_RENAMES, VBCABLE_DOWNLOAD_URL,
+    CableAction, CableStatus, CableStatusExt, DeviceInfo, DeviceKind, Engine, LogSink, Settings,
+    Status, CABLE_RENAMES, VBCABLE_DOWNLOAD_URL,
 };
 use crate::tray::{Tray, TrayCmd};
 use crate::{AppState, AppWindow, Cfg, DiagRow, InfoBarData, Severity};
