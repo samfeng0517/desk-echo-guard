@@ -1,0 +1,129 @@
+// The two globals Rust talks to (src/ui/controller.rs):
+//   AppState – status shown by the UI + user actions (callbacks)
+//   Cfg      – the editable settings; every edit calls Cfg.changed()
+
+import { Severity } from "theme.slint";
+
+export struct InfoBarData {
+    severity: Severity,
+    title: string,
+    message: string,
+    action: string,      // button text, "" = no button
+    action-id: string,   // passed to AppState.infobar-action
+    tip: string,         // tooltip of the action button
+}
+
+export struct DiagRow {
+    label: string,
+    value: string,
+    tip: string,
+}
+
+export global AppState {
+    in-out property <int> page: 0;            // 0 home, 1 devices, 2 siri, 3 advanced
+    in-out property <bool> nav-compact: false;
+    in property <bool> is-windows: true;
+
+    // run state
+    in property <bool> running;
+    in property <bool> busy;
+    in property <string> busy-text;
+
+    // live levels (0..1) and their dB labels
+    in property <float> mic-level;
+    in property <float> ref-level;
+    in property <float> out-level;
+    in property <string> mic-db;
+    in property <string> ref-db;
+    in property <string> out-db;
+
+    // InfoBars per page
+    in property <[InfoBarData]> home-bars;
+    in property <[InfoBarData]> devices-bars;
+    in property <[InfoBarData]> siri-bars;
+    in property <[InfoBarData]> advanced-bars;
+
+    // VB-Cable
+    in property <bool> cable-found;
+    in property <bool> cable-renamed;
+    in property <bool> cable-has-ab;          // CABLE-A present (Siri guard)
+    in property <string> cable-status;
+    in property <string> virtual-mic-name: "CABLE Output";
+    in property <string> siri-speaker-name: "CABLE-A Input";
+    in property <[string]> rename-lines;      // "CABLE Output → 回聲消除麥克風"
+    in property <[string]> unused-devices;
+
+    // device lists (index 0 of mic / speaker = Windows default)
+    in property <[string]> mic-devices;
+    in property <[string]> speaker-devices;
+    in property <[string]> out-devices;
+    in property <[string]> call-in-devices;
+
+    // calibration
+    in property <bool> calibrating;
+    in property <bool> calib-shown;
+    in property <InfoBarData> calib-bar;
+
+    // advanced
+    in-out property <bool> autostart;
+    in property <bool> autostart-available: true;
+    in property <[DiagRow]> diag;
+    in property <string> log-text;
+    in property <string> version;
+    in property <string> config-path;
+    in-out property <bool> diag-expanded;
+    in-out property <bool> about-expanded;
+
+    // toast ("已套用變更")
+    in property <string> toast-text;
+    in property <bool> toast-shown;
+
+    // dialogs: 0 none, 1 tidy VB-Cable, 2 restore VB-Cable
+    in-out property <int> dialog: 0;
+    in-out property <bool> dialog-rename: true;
+    in-out property <bool> dialog-hide: true;
+
+    callback toggle-run();
+    callback infobar-action(string);
+    callback copy-text(string);
+    callback open-url(string);
+    callback page-shown(int);
+    callback tidy-cable(bool, bool);          // rename, hide
+    callback restore-cable();
+    callback calibrate();
+    callback set-autostart(bool);
+    callback copy-log();
+    callback open-config-folder();
+    callback pick-model();
+    callback pick-debug-folder();
+}
+
+export global Cfg {
+    in-out property <int> mic-index;          // 0 = Windows default
+    in-out property <int> speaker-index;
+    in-out property <int> out-index;
+    in-out property <int> call-in-index;
+    in-out property <int> engine-index;       // auto webrtc speex nlms off
+    in-out property <bool> noise-suppression: true;
+    in-out property <bool> high-pass: true;
+    in-out property <bool> agc: false;
+    in-out property <int> delay-ms;
+    in-out property <int> mic-delay-ms;
+    in-out property <float> gain-db;
+    in-out property <bool> siri-guard;
+    in-out property <int> siri-mode-index;    // always sibilant detect
+    in-out property <int> siri-profile-index; // deep-wide apple-deep apple-wide formant
+    in-out property <string> siri-model;
+    in-out property <float> siri-threshold: 0.5;
+    in-out property <string> debug-wav;
+
+    // called after every edit: Rust saves and, if running, re-applies
+    callback changed();
+}
+
+export global Links {
+    out property <string> docs: "https://github.com/samfeng0517/desk-echo-guard/blob/main/rust/docs/getting-started.md";
+    out property <string> siri-docs: "https://github.com/samfeng0517/desk-echo-guard/blob/main/rust/docs/siri-guard.md";
+    out property <string> github: "https://github.com/samfeng0517/desk-echo-guard";
+    out property <string> vbcable: "https://vb-audio.com/Cable/";
+}

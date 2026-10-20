@@ -1,0 +1,76 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { InfoBar } from "../controls.slint";
+import { AppState, InfoBarData } from "../state.slint";
+
+// Scrolling page with a 28 px title; content is left aligned with a max
+// width, like Windows 11 Settings.
+export component Page inherits Rectangle {
+    in property <string> title;
+    in property <[InfoBarData]> bars;
+
+    sv := ScrollView {
+        viewport-width: sv.visible-width;
+        viewport-height: lay.preferred-height;
+
+        lay := VerticalLayout {
+            width: sv.visible-width;
+            height: self.preferred-height;
+            padding-left: Theme.page-padding;
+            padding-right: Theme.page-padding;
+            padding-top: 28px;
+            padding-bottom: 36px;
+            spacing: Theme.card-gap;
+            alignment: start;
+
+            HorizontalLayout {
+                alignment: start;
+                VerticalLayout {
+                    max-width: Theme.content-max-width;
+                    horizontal-stretch: 1;
+                    spacing: Theme.card-gap;
+
+                    Text {
+                        text: root.title;
+                        font-size: Theme.title;
+                        font-weight: 600;
+                        color: Theme.text;
+                        accessible-role: text;
+                    }
+                    Rectangle {
+                        height: 16px;
+                    }
+
+                    for bar in root.bars: VerticalLayout {
+                        padding-bottom: 8px;
+                        InfoBar {
+                            severity: bar.severity;
+                            title: bar.title;
+                            message: bar.message;
+                            action: bar.action;
+                            action-tip: bar.tip;
+                            action-clicked => {
+                                AppState.infobar-action(bar.action-id);
+                            }
+                        }
+                    }
+
+                    @children
+                }
+            }
+        }
+    }
+}
+
+// Section header above a group of cards.
+export component Section inherits VerticalLayout {
+    in property <string> text;
+    padding-top: 20px;
+    padding-bottom: 4px;
+    Text {
+        text: root.text;
+        font-size: Theme.body;
+        font-weight: 600;
+        color: Theme.text;
+    }
+}

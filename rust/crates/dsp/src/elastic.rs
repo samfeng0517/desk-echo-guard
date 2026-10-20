@@ -327,7 +327,7 @@ mod tests {
         let b = ElasticBuffer::with_options(960, 1000.0, fixed_clock());
         let mut rng = StdRng::seed_from_u64(0);
         let x: Vec<f32> = (0..48000 * 3)
-            .map(|_| 0.2 * StandardNormal.sample(&mut rng) as f32)
+            .map(|_| 0.2 * Distribution::<f64>::sample(&StandardNormal, &mut rng) as f32)
             .collect();
         let mut y = vec![0.0f32; x.len()];
         for (k, i) in (0..x.len()).step_by(480).enumerate() {

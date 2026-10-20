@@ -13,9 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 
-use crate::{
-    match_device, AudioBackend, DeviceInfo, DeviceKind, InputStream, OutputStream,
-};
+use crate::{match_device, AudioBackend, DeviceInfo, DeviceKind, InputStream, OutputStream};
 
 const FS: f64 = 48_000.0;
 
@@ -186,13 +184,7 @@ impl SimBackend {
     }
 
     /// Add (or replace) the loopback signal of speaker `name`.
-    pub fn add_loopback(
-        &self,
-        name: &str,
-        signal: impl Into<Arc<[f32]>>,
-        ppm: f64,
-        looping: bool,
-    ) {
+    pub fn add_loopback(&self, name: &str, signal: impl Into<Arc<[f32]>>, ppm: f64, looping: bool) {
         let src = Source {
             name: name.into(),
             signal: signal.into(),
@@ -236,7 +228,11 @@ impl SimBackend {
         if let Some(rec) = d.opened.get(name) {
             return rec.lock().clone();
         }
-        let items: Vec<DeviceInfo> = d.opened.keys().map(|k| info(DeviceKind::Speaker, k, 2)).collect();
+        let items: Vec<DeviceInfo> = d
+            .opened
+            .keys()
+            .map(|k| info(DeviceKind::Speaker, k, 2))
+            .collect();
         match match_device(&items, name, "speaker") {
             Ok(dev) => d.opened[&dev.name].lock().clone(),
             Err(_) => Vec::new(),
@@ -291,7 +287,11 @@ impl AudioBackend for SimBackend {
             .iter()
             .map(|s| info(DeviceKind::Mic, &s.name, 1))
             .collect();
-        v.extend(d.outputs.iter().map(|(n, _)| info(DeviceKind::Speaker, n, 2)));
+        v.extend(
+            d.outputs
+                .iter()
+                .map(|(n, _)| info(DeviceKind::Speaker, n, 2)),
+        );
         Ok(v)
     }
 
@@ -423,13 +423,24 @@ mod tests {
     fn devices_can_be_added_later() {
         let be = SimBackend::new(1000.0).with_output("Speakers", 0.0);
         assert!(be.open_input(None, false, 480).is_err());
-        be.add_input("CABLE Output (VB-Audio Virtual Cable)", vec![0.0f32; 480], 0.0, false);
+        be.add_input(
+            "CABLE Output (VB-Audio Virtual Cable)",
+            vec![0.0f32; 480],
+            0.0,
+            false,
+        );
         be.add_output("CABLE Input (VB-Audio Virtual Cable)", 0.0);
         assert_eq!(be.list_devices().unwrap().len(), 3);
         assert!(be.open_input(Some("cable output"), false, 480).is_ok());
         // reopening replaces the recording
-        be.open_output(Some("speakers"), 480).unwrap().write(&[1.0]).unwrap();
-        be.open_output(Some("speakers"), 480).unwrap().write(&[2.0]).unwrap();
+        be.open_output(Some("speakers"), 480)
+            .unwrap()
+            .write(&[1.0])
+            .unwrap();
+        be.open_output(Some("speakers"), 480)
+            .unwrap()
+            .write(&[2.0])
+            .unwrap();
         assert_eq!(be.output_data("Speakers"), vec![2.0]);
     }
 

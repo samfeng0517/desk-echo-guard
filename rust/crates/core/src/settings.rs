@@ -152,8 +152,8 @@ fn home_dir() -> PathBuf {
 /// names becomes `_` (like `cli.load_config`).
 pub fn load_config(path: impl AsRef<Path>) -> Result<Table> {
     let path = path.as_ref();
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     parse_config(&text).with_context(|| format!("invalid TOML in {}", path.display()))
 }
 
@@ -202,9 +202,7 @@ fn as_f64(k: &str, v: &Value) -> Result<f64> {
 fn as_uint(k: &str, v: &Value) -> Result<u64> {
     match v {
         Value::Integer(i) if *i >= 0 => Ok(*i as u64),
-        Value::Float(f) if *f >= 0.0 && f.fract() == 0.0 && *f <= u32::MAX as f64 => {
-            Ok(*f as u64)
-        }
+        Value::Float(f) if *f >= 0.0 && f.fract() == 0.0 && *f <= u32::MAX as f64 => Ok(*f as u64),
         _ => bail!("{k}: expected a non-negative integer, got {v}"),
     }
 }
@@ -243,10 +241,9 @@ pub fn settings_from_table(t: &Table, strict: bool) -> Result<Settings> {
             "siri_model" => {
                 s.siri_model = match v {
                     Value::String(m) => vec![m.clone()],
-                    Value::Array(a) => a
-                        .iter()
-                        .map(|m| as_str(k, m))
-                        .collect::<Result<Vec<_>>>()?,
+                    Value::Array(a) => {
+                        a.iter().map(|m| as_str(k, m)).collect::<Result<Vec<_>>>()?
+                    }
                     _ => bail!("{k}: expected a string or a list of strings"),
                 }
             }
@@ -308,9 +305,8 @@ fn toml_f64(x: f64) -> String {
 /// The settings file text (header comment, then every non-None setting in
 /// declaration order), exactly like `cli.save_config`.
 pub fn config_text(s: &Settings) -> String {
-    let mut lines = vec![
-        "# desk-echo-guard settings (written by the GUI; --config reads it too)".to_string(),
-    ];
+    let mut lines =
+        vec!["# desk-echo-guard settings (written by the GUI; --config reads it too)".to_string()];
     let b = |v: bool| if v { "true" } else { "false" }.to_string();
     let opt = |v: &Option<String>| v.as_deref().map(toml_str);
     let values: [(&str, Option<String>); 27] = [
@@ -366,11 +362,9 @@ pub fn config_text(s: &Settings) -> String {
 pub fn save_config(path: impl AsRef<Path>, s: &Settings) -> Result<()> {
     let path = path.as_ref();
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("cannot create {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
     }
-    std::fs::write(path, config_text(s))
-        .with_context(|| format!("cannot write {}", path.display()))
+    std::fs::write(path, config_text(s)).with_context(|| format!("cannot write {}", path.display()))
 }
 
 #[cfg(test)]
@@ -378,10 +372,8 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "echoguard-core-test-{}-{name}",
-            std::process::id()
-        ));
+        let d =
+            std::env::temp_dir().join(format!("echoguard-core-test-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -424,7 +416,13 @@ mod tests {
         assert_eq!(s.filter_ms, 200);
         assert_eq!(s.siri_depth_db, Some(-40.0));
         assert_eq!(s.max_ppm, 500.0);
-        for bad in ["agc = 1", "mic = 3", "filter_ms = -1", "blocksize = 1.5", "siri_model = 2"] {
+        for bad in [
+            "agc = 1",
+            "mic = 3",
+            "filter_ms = -1",
+            "blocksize = 1.5",
+            "siri_model = 2",
+        ] {
             let t = parse_config(bad).unwrap();
             assert!(settings_from_table(&t, false).is_err(), "{bad}");
         }
@@ -472,7 +470,10 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
         assert_eq!(back, s);
         let d = Settings::default();
         save_config(&path, &d).unwrap();
-        assert_eq!(settings_from_table(&load_config(&path).unwrap(), true).unwrap(), d);
+        assert_eq!(
+            settings_from_table(&load_config(&path).unwrap(), true).unwrap(),
+            d
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

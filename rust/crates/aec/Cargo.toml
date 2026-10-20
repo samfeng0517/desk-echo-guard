@@ -4,13 +4,21 @@ description = "Acoustic echo cancellation engines (WebRTC AEC3, SpeexDSP, NLMS) 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [features]
 default = ["webrtc", "speex"]
 webrtc = ["dep:libwebrtc"]
-speex = []
+# SpeexDSP echo canceller + preprocessor, vendored C sources (vendor/speexdsp)
+speex = ["dep:cc"]
 
 [dependencies]
 anyhow.workspace = true
 echoguard-dsp.workspace = true
 libwebrtc = { version = "0.3", optional = true }
+
+[build-dependencies]
+cc = { version = "1", optional = true }
+
+[dev-dependencies]
+rand.workspace = true

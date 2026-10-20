@@ -1,0 +1,125 @@
+import { Button, ComboBox, CheckBox } from "std-widgets.slint";
+import { Theme, Icons } from "../theme.slint";
+import { Tips } from "../tips.slint";
+import { Tip, SettingsCard, ExpanderCard, CardRow } from "../controls.slint";
+import { AppState, Cfg } from "../state.slint";
+import { Page, Section } from "page.slint";
+
+export component DevicesPage inherits Page {
+    title: "裝置";
+    bars: AppState.devices-bars;
+
+    Section {
+        text: "你的麥克風和喇叭";
+    }
+    SettingsCard {
+        icon: Icons.mic;
+        title: "麥克風";
+        description: "你實際說話用的麥克風";
+        tip: Tips.mic;
+        ComboBox {
+            width: 280px;
+            model: AppState.mic-devices;
+            current-index <=> Cfg.mic-index;
+            selected => {
+                Cfg.changed();
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.speaker;
+        title: "喇叭";
+        description: "你聽對方聲音用的喇叭；程式會擷取它正在播的聲音來消除回音";
+        tip: Tips.speaker;
+        ComboBox {
+            width: 280px;
+            model: AppState.speaker-devices;
+            current-index <=> Cfg.speaker-index;
+            selected => {
+                Cfg.changed();
+            }
+        }
+    }
+
+    Section {
+        text: "VB-Cable（虛擬音效線）";
+    }
+    SettingsCard {
+        icon: Icons.plug;
+        title: AppState.cable-found ? "VB-Cable：已安裝" : "VB-Cable：沒有找到";
+        description: AppState.cable-status;
+        tip: AppState.cable-found ? Tips.vbcable : Tips.vbcable-install;
+        if AppState.cable-found: Tip {
+            tip: Tips.tidy-cable;
+            focused: tidy.has-focus;
+            tidy := Button {
+                text: "整理 VB-Cable…";
+                enabled: !AppState.busy;
+                clicked => {
+                    AppState.dialog-rename = !AppState.cable-renamed;
+                    AppState.dialog-hide = AppState.unused-devices.length > 0;
+                    AppState.dialog = 1;
+                }
+            }
+        }
+        if !AppState.cable-found: Tip {
+            tip: Tips.vbcable-install;
+            focused: dl.has-focus;
+            dl := Button {
+                text: "下載 VB-Cable";
+                icon: Icons.download;
+                colorize-icon: true;
+                clicked => {
+                    AppState.open-url("https://vb-audio.com/Cable/");
+                }
+            }
+        }
+    }
+    ExpanderCard {
+        icon: Icons.wrench;
+        title: "手動指定虛擬音效線（通常不用）";
+        description: "程式會自動找到 VB-Cable，改過名稱也找得到";
+        tip: Tips.manual-cable;
+        CardRow {
+            title: "處理好的聲音送到";
+            description: "預設：CABLE Input";
+            tip: Tips.out-device;
+            ComboBox {
+                width: 260px;
+                model: AppState.out-devices;
+                current-index <=> Cfg.out-index;
+                selected => {
+                    Cfg.changed();
+                }
+            }
+        }
+        CardRow {
+            title: "通話聲音來源（Hey Siri 防誤觸用）";
+            description: "預設：CABLE-A Output";
+            tip: Tips.call-in-device;
+            ComboBox {
+                width: 260px;
+                model: AppState.call-in-devices;
+                current-index <=> Cfg.call-in-index;
+                selected => {
+                    Cfg.changed();
+                }
+            }
+        }
+        CardRow {
+            title: "還原 VB-Cable 原本的設定";
+            description: "改回 VB-Audio 原本的名稱，並重新啟用停用的 VB-Cable 裝置";
+            tip: Tips.restore-cable;
+            enabled: AppState.cable-found;
+            Button {
+                text: "還原…";
+                icon: Icons.restore;
+                colorize-icon: true;
+                enabled: AppState.cable-found && !AppState.busy;
+                clicked => {
+                    AppState.dialog = 2;
+                }
+            }
+        }
+    }
+}

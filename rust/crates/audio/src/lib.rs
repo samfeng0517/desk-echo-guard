@@ -94,6 +94,8 @@ pub fn default_backend() -> Result<Arc<dyn AudioBackend>> {
     }
 }
 
+pub mod sim;
+pub mod stream;
 #[cfg(windows)]
 pub mod wasapi;
 

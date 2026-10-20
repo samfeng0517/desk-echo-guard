@@ -8,7 +8,9 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 parking_lot.workspace = true
+rtrb = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.26"
-rtrb = "0.3"
+# MMCSS ("Pro Audio") for the device threads
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

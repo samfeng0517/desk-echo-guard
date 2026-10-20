@@ -1,0 +1,249 @@
+import { Button, ComboBox, Switch, Slider } from "std-widgets.slint";
+import { Theme, Icons } from "../theme.slint";
+import { Tips } from "../tips.slint";
+import { Tip, Card, SettingsCard, RadioOption, LinkText, FluentIcon, Caption } from "../controls.slint";
+import { AppState, Cfg, Links } from "../state.slint";
+import { Page, Section } from "page.slint";
+
+export global SiriText {
+    out property <[string]> profiles: ["標準（推薦）", "輕微", "較淺", "加強"];
+    out property <[string]> profile-desc: [
+        "削掉 Siri 最容易聽到的整段高音。聲音稍微變暗，但很自然。",
+        "仿照 Apple 發表會，只削幾個很窄的頻段。幾乎聽不出來，但擋得比較少。",
+        "範圍和「標準」一樣，削得比較淺。聲音稍微變暗。",
+        "再多削一段中音，最有效，但對方聲音明顯變悶。建議搭配「偵測到 Hey Siri 才處理」。",
+    ];
+}
+
+export component SiriPage inherits Page {
+    title: "Hey Siri 防誤觸";
+    bars: AppState.siri-bars;
+
+    // ---- what this is
+    Card {
+        pad: 20px;
+        HorizontalLayout {
+            spacing: 16px;
+            VerticalLayout {
+                alignment: start;
+                FluentIcon {
+                    width: 28px;
+                    height: 28px;
+                    source: Icons.voice;
+                    tint: Theme.accent;
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                horizontal-stretch: 1;
+                Text {
+                    text: "家裡有 HomePod / iPhone 嗎？";
+                    font-size: Theme.body-large;
+                    font-weight: 600;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "通話對方說「Hey Siri」時，你的喇叭會把它播出來而叫醒 Siri。開啟後會在對方的聲音裡削掉 Siri 聽得到的頻段。";
+                    font-size: Theme.body;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    LinkText {
+                        text: "詳細說明與實測結果";
+                        tip: Tips.siri-docs;
+                        activated => {
+                            AppState.open-url(Links.siri-docs);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Section {
+        text: "設定";
+    }
+    SettingsCard {
+        icon: Icons.shield;
+        title: "啟用 Hey Siri 防誤觸";
+        description: Cfg.siri-guard ? "通話軟體的喇叭要選「" + AppState.siri-speaker-name + "」" : "需要另外安裝 VB-CABLE A+B";
+        tip: Tips.siri-enable;
+        Text {
+            text: Cfg.siri-guard ? "開啟" : "關閉";
+            font-size: Theme.body;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        Tip {
+            tip: Tips.siri-enable;
+            focused: sw.has-focus;
+            sw := Switch {
+                checked <=> Cfg.siri-guard;
+                toggled => {
+                    Cfg.changed();
+                }
+            }
+        }
+    }
+
+    Card {
+        Tip {
+            tip: Tips.siri-mode;
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    FluentIcon {
+                        source: Icons.timer;
+                        tint: Cfg.siri-guard ? Theme.text : Theme.text-disabled;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: "模式";
+                        font-size: Theme.body;
+                        color: Cfg.siri-guard ? Theme.text : Theme.text-disabled;
+                    }
+                    Caption {
+                        text: "什麼時候處理對方的聲音";
+                        color: Cfg.siri-guard ? Theme.text-secondary : Theme.text-disabled;
+                    }
+                }
+            }
+        }
+        VerticalLayout {
+            padding-left: 36px;
+            spacing: 4px;
+            RadioOption {
+                title: "一直處理（推薦）";
+                description: "聲音稍微悶一點，不會增加延遲。";
+                tip: Tips.mode-always;
+                enabled: Cfg.siri-guard;
+                selected: Cfg.siri-mode-index == 0;
+                clicked => {
+                    Cfg.siri-mode-index = 0;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "只在「s」音時處理";
+                description: "只在聽到 /s/ 音時處理，對方的聲音會晚約 1 秒。";
+                tip: Tips.mode-sibilant;
+                enabled: Cfg.siri-guard;
+                selected: Cfg.siri-mode-index == 1;
+                clicked => {
+                    Cfg.siri-mode-index = 1;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "偵測到「Hey Siri」才處理";
+                description: "需要喚醒詞模型檔，對方的聲音會晚約 1 秒。";
+                tip: Tips.mode-detect;
+                enabled: Cfg.siri-guard;
+                selected: Cfg.siri-mode-index == 2;
+                clicked => {
+                    Cfg.siri-mode-index = 2;
+                    Cfg.changed();
+                }
+            }
+        }
+        if Cfg.siri-mode-index == 2: VerticalLayout {
+            padding-left: 68px;
+            spacing: 12px;
+            Tip {
+                tip: Tips.siri-model;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "模型檔";
+                        font-size: Theme.body;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        width: 64px;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: Cfg.siri-model == "" ? "（還沒選擇）" : Cfg.siri-model;
+                        font-size: Theme.body;
+                        color: Cfg.siri-model == "" ? Theme.text-tertiary : Theme.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Button {
+                        text: "選擇…";
+                        icon: Icons.document;
+                        colorize-icon: true;
+                        enabled: Cfg.siri-guard;
+                        clicked => {
+                            AppState.pick-model();
+                        }
+                    }
+                }
+            }
+            Tip {
+                tip: Tips.siri-threshold;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "靈敏度";
+                        font-size: Theme.body;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        width: 64px;
+                    }
+                    Caption {
+                        text: "較敏感";
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                    Slider {
+                        horizontal-stretch: 1;
+                        minimum: 0.05;
+                        maximum: 0.95;
+                        step: 0.05;
+                        enabled: Cfg.siri-guard;
+                        value <=> Cfg.siri-threshold;
+                        released => {
+                            Cfg.changed();
+                        }
+                    }
+                    Caption {
+                        text: "較不敏感";
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                    Text {
+                        text: round(Cfg.siri-threshold * 100) / 100;
+                        width: 36px;
+                        font-size: Theme.body;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+        }
+    }
+
+    SettingsCard {
+        icon: Icons.options;
+        title: "強度";
+        description: SiriText.profile-desc[Cfg.siri-profile-index];
+        tip: Tips.siri-profile;
+        enabled: Cfg.siri-guard;
+        ComboBox {
+            width: 200px;
+            enabled: Cfg.siri-guard;
+            model: SiriText.profiles;
+            current-index <=> Cfg.siri-profile-index;
+            selected => {
+                Cfg.changed();
+            }
+        }
+    }
+}

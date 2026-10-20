@@ -1,0 +1,228 @@
+import { Button, Spinner } from "std-widgets.slint";
+import { Theme, Icons } from "../theme.slint";
+import { Tips } from "../tips.slint";
+import { Tip, Card, Meter, FluentIcon, Caption } from "../controls.slint";
+import { AppState, Cfg } from "../state.slint";
+import { Page, Section } from "page.slint";
+
+// "麥克風（輸入裝置）選：回聲消除麥克風 [複製]"
+component CopyLine {
+    in property <string> label;
+    in property <string> value;
+    in property <string> tip;
+
+    Tip {
+        tip: root.tip;
+        focused: btn.has-focus;
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: root.label;
+                font-size: Theme.body;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                min-width: 150px;
+                horizontal-stretch: 0;
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 4px;
+                background: Theme.card-inner;
+                border-width: 1px;
+                border-color: Theme.divider;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    Text {
+                        text: root.value;
+                        font-size: Theme.body;
+                        font-weight: 600;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+            btn := Button {
+                text: "複製";
+                icon: Icons.copy;
+                colorize-icon: true;
+                clicked => {
+                    AppState.copy-text(root.value);
+                }
+            }
+        }
+    }
+}
+
+export component HomePage inherits Page {
+    title: "首頁";
+    bars: AppState.home-bars;
+
+    // ---- hero: state + the one big button
+    Card {
+        pad: 24px;
+        HorizontalLayout {
+            spacing: 20px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 64px;
+                    height: 64px;
+                    border-radius: 32px;
+                    background: AppState.running ? Theme.accent.with-alpha(0.14) : Theme.track;
+                    animate background { duration: 250ms; }
+                    FluentIcon {
+                        width: 36px;
+                        height: 36px;
+                        source: AppState.running ? Icons.shield-check : Icons.shield;
+                        tint: AppState.running ? Theme.accent : Theme.text-secondary;
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Text {
+                    text: AppState.running ? "回聲消除：運作中" : "回聲消除：已停止";
+                    font-size: Theme.subtitle;
+                    font-weight: 600;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                }
+                Text {
+                    text: AppState.busy ? AppState.busy-text : AppState.running ? "對方聽不到自己的回音了。" : "按「開始」後，對方就不會聽到回音。";
+                    font-size: Theme.body;
+                    color: Theme.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                if AppState.busy: Spinner {
+                    width: 32px;
+                    height: 32px;
+                    indeterminate: true;
+                }
+                if !AppState.busy: Tip {
+                    tip: AppState.running ? Tips.stop : Tips.start;
+                    focused: run-btn.has-focus;
+                    run-btn := Button {
+                        min-width: 128px;
+                        height: 40px;
+                        text: AppState.running ? "停止" : "開始";
+                        icon: AppState.running ? Icons.stop : Icons.play;
+                        colorize-icon: true;
+                        primary: !AppState.running;
+                        clicked => {
+                            AppState.toggle-run();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- what to pick in Discord / LINE
+    Section {
+        text: "在通話軟體這樣設定";
+    }
+    Card {
+        Tip {
+            tip: Tips.call-setup;
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    FluentIcon {
+                        source: Icons.call;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    Text {
+                        text: "Discord / LINE 的音效設定";
+                        font-size: Theme.body;
+                        color: Theme.text;
+                    }
+                    Caption {
+                        text: "只要設定一次。之後記得先在這裡按「開始」，再開始通話。";
+                    }
+                }
+            }
+        }
+        CopyLine {
+            label: "麥克風（輸入裝置）選";
+            value: AppState.virtual-mic-name;
+            tip: Tips.copy-mic;
+        }
+        if Cfg.siri-guard: CopyLine {
+            label: "喇叭（輸出裝置）選";
+            value: AppState.siri-speaker-name;
+            tip: Tips.copy-siri-speaker;
+        }
+        Tip {
+            tip: Tips.call-echo-off;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    FluentIcon {
+                        width: 16px;
+                        height: 16px;
+                        source: Icons.info;
+                        tint: Theme.text-secondary;
+                    }
+                }
+                Caption {
+                    text: "通話軟體自己的「回音消除」請關掉，交給本程式處理。";
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // ---- live levels
+    Section {
+        text: "即時音量";
+    }
+    Card {
+        Meter {
+            icon: Icons.mic;
+            name: "你的麥克風";
+            hint: "你說話時會跳動";
+            tip: Tips.meter-mic;
+            level: AppState.mic-level;
+            value-text: AppState.mic-db;
+            active: AppState.running;
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.divider;
+        }
+        Meter {
+            icon: Icons.speaker;
+            name: "喇叭播放中";
+            hint: "對方說話或播放音樂時會跳動";
+            tip: Tips.meter-ref;
+            level: AppState.ref-level;
+            value-text: AppState.ref-db;
+            active: AppState.running;
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.divider;
+        }
+        Meter {
+            icon: Icons.headphones;
+            name: "送給對方";
+            hint: "對方說話時應該幾乎不動，代表回音被消掉了";
+            tip: Tips.meter-out;
+            level: AppState.out-level;
+            value-text: AppState.out-db;
+            active: AppState.running;
+        }
+    }
+}

@@ -1,13 +1,26 @@
 //! DSP core (pure Rust, no OS dependencies).  Port of the numpy/scipy code in
 //! `../echoguard`; see `DESIGN.md` for the module map.
 
+pub mod delay_est;
 pub mod delay_line;
-pub mod resample;
+pub mod elastic;
+pub mod filters;
+pub mod guard;
+pub mod metrics;
 pub mod nlms;
+pub mod notch;
+pub mod resample;
+pub mod testsig;
 
+pub use delay_est::estimate_delay_ms;
 pub use delay_line::DelayLine;
-pub use resample::IntegerResampler;
+pub use elastic::{Clock, ElasticBuffer, ElasticOptions, ElasticStats};
+pub use guard::{GuardConfig, GuardMode, OracleDetector, SibilantDetector, SiriGuard};
+pub use metrics::{band_energy_db, best_lag, db, energy, erle_db};
 pub use nlms::Nlms16k;
+pub use notch::{design_notch_fir, notch_target_gain, NotchBank, NotchConfig, DEFAULT_PROFILE, PROFILES};
+pub use resample::IntegerResampler;
+pub use testsig::{make_scenario, synth_speech, Scenario};
 
 /// Internal / device sample rate.
 pub const FS: usize = 48_000;

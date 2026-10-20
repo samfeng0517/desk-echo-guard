@@ -1271,8 +1271,10 @@ name = "echoguard-aec"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "cc",
  "echoguard-dsp",
  "libwebrtc",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -1283,6 +1285,7 @@ dependencies = [
  "parking_lot",
  "rtrb",
  "wasapi",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -102,8 +102,8 @@ pub fn read_blocking(
 ) -> Result<()> {
     let mut filled = 0;
     while filled < out.len() {
-        let (a, b) = cons.pop_partial_slice(&mut out[filled..]);
-        filled += a.len() + b.len();
+        let (popped, _) = cons.pop_partial_slice(&mut out[filled..]);
+        filled += popped.len();
         if filled == out.len() {
             break;
         }
@@ -158,6 +158,31 @@ pub fn capture_ring_capacity(blocksize: usize, device_buffer_frames: usize) -> u
 /// queue the next block while the device thread is waiting for its event.
 pub fn render_ring_capacity(blocksize: usize, period_frames: usize) -> usize {
     blocksize.max(period_frames).max(1) + period_frames
+}
+
+/// Device buffer to request from WASAPI (shared mode treats it as a
+/// minimum).  Render: two periods, or one block if larger; the render
+/// thread also never fills beyond this (see `render_fill_target`), so it
+/// bounds the device-side latency.  Capture: generous (100 ms), it only
+/// absorbs scheduling hiccups of the capture thread and adds no latency.
+pub fn device_buffer_frames(render: bool, blocksize: usize, period_frames: usize) -> usize {
+    if render {
+        render_fill_target(blocksize, period_frames)
+    } else {
+        (FS / 10).max(4 * period_frames)
+    }
+}
+
+/// How many frames the render thread keeps queued in the device buffer.
+pub fn render_fill_target(blocksize: usize, period_frames: usize) -> usize {
+    (2 * period_frames).max(blocksize).max(1)
+}
+
+/// Frames to hand to the render device now: limited by the free device
+/// space, by the fill target and by what the pipeline has queued.
+pub fn render_frames_now(target: usize, buffer: usize, padding: usize, queued: usize) -> usize {
+    let free = buffer.saturating_sub(padding);
+    target.saturating_sub(padding).min(free).min(queued)
 }
 
 /// Frames -> 100 ns units at `FS`.
@@ -296,6 +321,16 @@ mod tests {
         assert_eq!(render_ring_capacity(480, 144), 624);
         assert_eq!(render_ring_capacity(0, 0), 1);
         assert_eq!(capture_ring_capacity(480, 1056), 4 * 480 + 2 * 1056);
+        assert_eq!(device_buffer_frames(true, 480, 480), 960);
+        assert_eq!(device_buffer_frames(true, 960, 144), 960);
+        assert_eq!(device_buffer_frames(false, 480, 480), 4800);
+        assert_eq!(render_fill_target(0, 0), 1);
+        // target 960, buffer 1056
+        assert_eq!(render_frames_now(960, 1056, 0, 5000), 960);
+        assert_eq!(render_frames_now(960, 1056, 500, 5000), 460);
+        assert_eq!(render_frames_now(960, 1056, 500, 100), 100);
+        assert_eq!(render_frames_now(960, 1056, 1000, 5000), 0);
+        assert_eq!(render_frames_now(2000, 1056, 1000, 5000), 56);
     }
 
     #[test]
@@ -375,8 +410,7 @@ mod tests {
             let mut got = Vec::new();
             let mut buf = [0.0f32; 8];
             while got.len() < 100 {
-                let (a, b) = cons.pop_partial_slice(&mut buf);
-                let n = a.len() + b.len();
+                let n = cons.pop_partial_slice(&mut buf).0.len();
                 got.extend_from_slice(&buf[..n]);
                 sh.notify();
                 thread::sleep(Duration::from_millis(1));
