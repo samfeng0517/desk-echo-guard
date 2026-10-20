@@ -46,27 +46,32 @@ def _apple_bands(width=400.0):
     return tuple((c - width / 2, c + width / 2) for c in (3000.0, 4000.0, 5000.0, 6000.0))
 
 
-# Stop-band profiles.  "apple" reproduces the reported WWDC 2026 notches
-# (depth not public; 30 dB is our guess for "significantly reduced").  The
-# others are stronger, more audible variants; their effect on open-source
+# Stop-band profiles.  "apple-deep" uses the frequencies reported for WWDC
+# 2026 (depth not public); the shallower 30 dB "apple" profile did not stop a
+# real HomePod / iPhone and was removed.  "deep-wide" (the default) cuts the
+# whole 2.8-6.5 kHz range as deep as apple-deep.  Their effect on open-source
 # wake-word detectors is measured in experiments/guard_proxy_eval.py.
 PROFILES = {
-    "apple": {"bands": _apple_bands(400.0), "depth_db": 30.0},
+    "deep-wide": {"bands": ((2800.0, 6500.0),), "depth_db": 70.0},
     "apple-deep": {"bands": _apple_bands(400.0), "depth_db": 70.0},
     "apple-wide": {"bands": ((2800.0, 6500.0),), "depth_db": 50.0},
     "formant": {"bands": ((1000.0, 3000.0),) + _apple_bands(400.0), "depth_db": 70.0},
 }
+DEFAULT_PROFILE = "deep-wide"
+# names from older versions, still accepted in saved settings
+LEGACY_PROFILES = {"apple": DEFAULT_PROFILE}
 
 
 @dataclass
 class NotchConfig:
-    bands: tuple = PROFILES["apple"]["bands"]   # ((lo_hz, hi_hz), ...) stop bands
-    depth_db: float = 30.0
+    bands: tuple = PROFILES[DEFAULT_PROFILE]["bands"]   # ((lo_hz, hi_hz), ...) stop bands
+    depth_db: float = PROFILES[DEFAULT_PROFILE]["depth_db"]
     transition_hz: float = 150.0       # skirt on each side
     numtaps: int = 1201                # odd -> integer group delay (600 samples = 12.5 ms)
 
     @classmethod
     def profile(cls, name: str, **overrides) -> "NotchConfig":
+        name = LEGACY_PROFILES.get(name, name)
         if name not in PROFILES:
             raise ValueError(f"unknown notch profile {name!r}; choose from {sorted(PROFILES)}")
         kw = dict(PROFILES[name])

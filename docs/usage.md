@@ -90,7 +90,7 @@ python -m echoguard --calibrate --mic "USB" --speaker "Realtek"
 | `--delay-ms` / `--mic-delay-ms` | 延遲補償，見下方「調校」 |
 | `--siri-guard` | 開 Hey Siri 防護 |
 | `--siri-mode` | `always` / `sibilant` / `detect` |
-| `--siri-profile` | `apple` / `apple-deep` / `apple-wide` / `formant` |
+| `--siri-profile` | `deep-wide`（預設）/ `apple-deep` / `apple-wide` / `formant` |
 | `--siri-model` | `detect` 模式用的喚醒詞模型 |
 | `--debug-wav DIR` | 結束時把 mic / ref / out / call 錄音存到資料夾（最多 10 分鐘） |
 | `--sim-mic` / `--sim-ref` / `--sim-out` | 離線處理錄好的 wav |

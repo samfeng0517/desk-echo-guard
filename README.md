@@ -9,7 +9,7 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 
 > **使用前請知道**
 > - 已在 Windows 實機（桌上型喇叭 + 桌上型麥克風，Discord 通話）上使用，回聲消除有效。
-> - Hey Siri 防誤觸至少要用 `apple-deep`（目前的預設）；較淺的 `apple` 擋不住。Apple 的做法沒有官方公開，詳見 [Hey Siri 防誤觸](docs/siri-guard.md)。
+> - Hey Siri 防誤觸預設用 `deep-wide`（2.8–6.5 kHz 整段深陷波）；舊版較淺的 `apple` 實機擋不住，已移除。Apple 的做法沒有官方公開，詳見 [Hey Siri 防誤觸](docs/siri-guard.md)。
 
 ## 快速開始
 

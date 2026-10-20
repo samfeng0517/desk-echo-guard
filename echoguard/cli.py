@@ -74,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="openWakeWord model (.onnx/.tflite) for --siri-mode detect")
     s.add_argument("--siri-threshold", type=float, default=S)
     s.add_argument("--siri-profile", default=S,
-                   choices=["apple", "apple-deep", "apple-wide", "formant"])
+                   choices=["deep-wide", "apple-deep", "apple-wide", "formant"])
     s.add_argument("--siri-depth-db", type=float, default=S)
     s.add_argument("--siri-lookahead-s", type=float, default=S)
 

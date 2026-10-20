@@ -31,9 +31,9 @@ ENGINES = [("auto", "自動（webrtc 優先）"), ("webrtc", "WebRTC AEC3（推�
 MODES = [("always", "always：一律陷波（不加延遲）"),
          ("sibilant", "sibilant：偵測 /s/ 音（延遲約 1 秒）"),
          ("detect", "detect：喚醒詞模型（需 .onnx，延遲約 1 秒）")]
-PROFILES = [("apple-deep", "apple-deep：仿 Apple 3/4/5/6 kHz、深陷波（推薦）"),
-            ("apple", "apple：同上、較淺（可能擋不住）"),
-            ("apple-wide", "apple-wide：2.8–6.5 kHz"),
+PROFILES = [("deep-wide", "deep-wide：2.8–6.5 kHz 整段深陷波（推薦）"),
+            ("apple-deep", "apple-deep：仿 Apple 3/4/5/6 kHz 窄頻、深陷波"),
+            ("apple-wide", "apple-wide：2.8–6.5 kHz、較淺"),
             ("formant", "formant：再削 1–3 kHz（較有效、聲音較悶）")]
 
 
@@ -147,7 +147,7 @@ class EchoGuardGUI:
             output_gain_db=num(self.v_gain),
             siri_guard=bool(self.v_siri.get()),
             siri_mode=_key_for(MODES, self.v_mode.get(), "always"),
-            siri_profile=_key_for(PROFILES, self.v_profile.get(), "apple"),
+            siri_profile=_key_for(PROFILES, self.v_profile.get(), "deep-wide"),
             siri_model=[self.v_model.get().strip()] if self.v_model.get().strip() else [],
             siri_threshold=num(self.v_thr, default=0.5),
             debug_wav=self.v_debug.get().strip() or None,

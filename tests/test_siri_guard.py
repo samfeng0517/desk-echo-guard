@@ -50,7 +50,7 @@ def test_streaming_equals_offline():
     assert np.allclose(y_blocks, y_once, atol=1e-5)
 
 
-@pytest.mark.parametrize("profile", ["apple", "apple-deep", "formant"])
+@pytest.mark.parametrize("profile", ["deep-wide", "apple-deep", "formant"])
 def test_always_mode_spectral_effect_and_intelligibility(profile):
     x = synth_speech(8.0, seed=5)
     g = make_guard("always", notch=NotchConfig.profile(profile))
@@ -59,8 +59,7 @@ def test_always_mode_spectral_effect_and_intelligibility(profile):
     band_drop = [band_energy_db(x, lo, hi) - band_energy_db(y, lo, hi) for lo, hi in cfg.bands]
     total = db(energy(y)) - db(energy(x))
     lsd_all = log_spectral_distance(x, y)
-    lsd_outside = log_spectral_distance(x, y, lo=100, hi=2700) if profile != "formant" else \
-        log_spectral_distance(x, y, lo=100, hi=800)
+    lsd_outside = log_spectral_distance(x, y, lo=100, hi=min(lo for lo, _ in cfg.bands) - 300)
     st = stoi(x, y)
     env = envelope_correlation(*align(x, y))
     report(f"siri_guard_always[{profile}]", band_attenuation_dB_min=float(min(band_drop)),
@@ -125,3 +124,7 @@ def test_sibilant_detector_fires_on_s_like_bursts():
     voiced = signal.sosfilt(lp, vowel_only).astype(np.float32)
     n2 = sum(len(det2.feed(voiced[i:i + 480], i)) for i in range(0, len(voiced), 480))
     assert n2 == 0
+
+
+def test_legacy_apple_profile_maps_to_default():
+    assert NotchConfig.profile("apple") == NotchConfig.profile("deep-wide") == NotchConfig()

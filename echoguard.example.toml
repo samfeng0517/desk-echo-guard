@@ -22,6 +22,6 @@ siri_guard = false
 call_in = "CABLE-A Output"    # Discord/LINE 的「輸出裝置」設成 CABLE-A Input
 siri_mode = "always"          # detect（需模型）| sibilant | always
 # siri_model = "models/hey_siri.onnx"
-siri_profile = "apple-deep"   # apple | apple-deep | apple-wide | formant
+siri_profile = "deep-wide"    # deep-wide | apple-deep | apple-wide | formant
 siri_threshold = 0.5
 siri_lookahead_s = 1.0

@@ -52,7 +52,7 @@ class Settings:
     siri_mode: str = "always"         # always | sibilant | detect (needs siri_model)
     siri_model: list = field(default_factory=list)
     siri_threshold: float = 0.5
-    siri_profile: str = "apple-deep"
+    siri_profile: str = "deep-wide"
     siri_depth_db: float | None = None
     siri_lookahead_s: float = 1.0
     spk_buffer_ms: float = 40.0
