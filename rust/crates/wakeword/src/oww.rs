@@ -48,9 +48,7 @@ impl Session {
     /// Run on an f32 tensor; the first output is written to `out` (cleared
     /// first).
     fn run_into(&mut self, shape: &[usize], data: &[f32], out: &mut Vec<f32>) -> Result<()> {
-        let y = self
-            .model
-            .run(Tensor::f32(shape.to_vec(), data.to_vec()))?;
+        let y = self.model.run(Tensor::f32(shape.to_vec(), data.to_vec()))?;
         out.clear();
         out.extend_from_slice(y.as_f32()?);
         Ok(())
@@ -255,7 +253,8 @@ impl OwwModel {
                 }
                 let end = rows - 8 * i;
                 let win = &self.mel_buf[(end - WINDOW) * MEL_BINS..end * MEL_BINS];
-                self.emb.run_into(&[1, WINDOW, MEL_BINS, 1], win, &mut self.tmp)?;
+                self.emb
+                    .run_into(&[1, WINDOW, MEL_BINS, 1], win, &mut self.tmp)?;
                 if self.tmp.len() != EMB_DIM {
                     bail!("embedding 模型輸出長度 {}，預期 {EMB_DIM}", self.tmp.len());
                 }
@@ -317,7 +316,8 @@ impl OwwModel {
             bail!("warm-up 音訊太短");
         }
         let mut out = Vec::new();
-        self.emb.run_into(&[b, WINDOW, MEL_BINS, 1], &batch, &mut out)?;
+        self.emb
+            .run_into(&[b, WINDOW, MEL_BINS, 1], &batch, &mut out)?;
         if out.len() != b * EMB_DIM {
             bail!("embedding 模型輸出長度 {}，預期 {}", out.len(), b * EMB_DIM);
         }

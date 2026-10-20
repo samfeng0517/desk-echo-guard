@@ -1,6 +1,6 @@
 //! A stand-in [`Engine`] with fake devices (incl. VB-Cable) and animated
-//! levels, so the GUI can run and be screenshotted before echoguard-core
-//! exists.  Settings really are loaded from / saved to the TOML file.
+//! levels, for `--screenshot` and UI work (`DEG_MOCK=1`).  Settings really
+//! are loaded from / saved to the TOML file; VB-Cable role logic is core's.
 //!
 //! Environment knobs (for trying out InfoBars):
 //!   DEG_MOCK_NO_CABLE=1  no VB-Cable installed
@@ -12,8 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use parking_lot::Mutex;
+
+use echoguard_core::vcable::{self, role_of};
 
 use crate::engine::*;
 
@@ -106,62 +108,6 @@ fn dev(kind: DeviceKind, name: &str, default: bool) -> DeviceInfo {
 const VB: &str = " (VB-Audio Virtual Cable)";
 const VBA: &str = " (VB-Audio Cable A)";
 const VBB: &str = " (VB-Audio Cable B)";
-
-// ---- minimal copy of vcable role logic (real one lives in echoguard-core)
-struct Role {
-    key: &'static str,
-    kind: DeviceKind,
-    original: &'static str,
-    renamed: &'static str,
-}
-const ROLES: [Role; 4] = [
-    Role {
-        key: "out",
-        kind: DeviceKind::Speaker,
-        original: "CABLE Input",
-        renamed: "EchoGuard 內部輸出（勿選）",
-    },
-    Role {
-        key: "virtual_mic",
-        kind: DeviceKind::Mic,
-        original: "CABLE Output",
-        renamed: "回聲消除麥克風",
-    },
-    Role {
-        key: "call_speaker",
-        kind: DeviceKind::Speaker,
-        original: "CABLE-A Input",
-        renamed: "Siri防護喇叭",
-    },
-    Role {
-        key: "call_in",
-        kind: DeviceKind::Mic,
-        original: "CABLE-A Output",
-        renamed: "EchoGuard 內部輸入（勿選）",
-    },
-];
-
-fn desc_is(name: &str, desc: &str) -> bool {
-    let n = name.trim().to_lowercase();
-    let d = desc.to_lowercase();
-    n == d || n.starts_with(&format!("{d} ("))
-}
-
-fn role_of(name: &str, kind: Option<DeviceKind>) -> Option<&'static Role> {
-    ROLES.iter().find(|r| {
-        kind.is_none_or(|k| k == r.kind) && (desc_is(name, r.original) || desc_is(name, r.renamed))
-    })
-}
-
-fn find(devices: &[DeviceInfo], role: &Role) -> Option<String> {
-    devices
-        .iter()
-        .find(|d| {
-            d.kind == role.kind
-                && role_of(&d.name, Some(role.kind)).is_some_and(|r| r.key == role.key)
-        })
-        .map(|d| d.name.clone())
-}
 
 impl Engine for MockEngine {
     fn start(&self, s: &Settings) -> Result<()> {
@@ -295,46 +241,15 @@ impl Engine for MockEngine {
     }
 
     fn cable_status(&self, devices: &[DeviceInfo]) -> CableStatus {
-        let names: std::collections::BTreeMap<_, _> =
-            ROLES.iter().map(|r| (r.key, find(devices, r))).collect();
-        let present: Vec<&Role> = ROLES.iter().filter(|r| names[r.key].is_some()).collect();
-        let renamed = !present.is_empty()
-            && present.iter().all(|r| {
-                names[r.key]
-                    .as_deref()
-                    .is_some_and(|n| desc_is(n, r.renamed))
-            });
-        let unused = devices
-            .iter()
-            .filter(|d| {
-                d.name.to_lowercase().contains("vb-audio")
-                    && role_of(&d.name, Some(d.kind)).is_none()
-            })
-            .map(|d| d.name.clone())
-            .collect();
-        CableStatus {
-            found: names["out"].is_some() && names["virtual_mic"].is_some(),
-            renamed,
-            names,
-            unused,
-        }
+        vcable::status(devices)
     }
 
     fn cable_display_name(&self, devices: &[DeviceInfo], key: &str) -> String {
-        let Some(r) = ROLES.iter().find(|r| r.key == key) else {
-            return key.to_string();
-        };
-        match find(devices, r) {
-            Some(n) if desc_is(&n, r.renamed) => r.renamed.to_string(),
-            _ => r.original.to_string(),
-        }
+        vcable::display_name(devices, key)
     }
 
     fn cable_resolve(&self, name: &str, kind: DeviceKind, devices: &[DeviceInfo]) -> String {
-        match role_of(name, Some(kind)) {
-            Some(r) => find(devices, r).unwrap_or_else(|| name.to_string()),
-            None => name.to_string(),
-        }
+        vcable::resolve(name, kind, devices)
     }
 
     fn cable_apply_elevated(&self, actions: &[CableAction]) -> (bool, String) {
@@ -378,7 +293,6 @@ impl Engine for MockEngine {
     }
 
     fn set_autostart(&self, enabled: bool) -> Result<()> {
-        // TODO(wiring): winutil::set_autostart(enabled)
         self.autostart.store(enabled, Ordering::Relaxed);
         Ok(())
     }
@@ -388,42 +302,10 @@ impl Engine for MockEngine {
     }
 
     fn load_settings(&self, path: &Path) -> Result<Settings> {
-        let text =
-            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        let table: toml::Table = text.parse()?;
-        // flatten [sections], accept '-' in keys, siri_model may be a string
-        let mut flat = toml::Table::new();
-        fn walk(t: &toml::Table, out: &mut toml::Table) {
-            for (k, v) in t {
-                match v {
-                    toml::Value::Table(sub) => walk(sub, out),
-                    _ => {
-                        out.insert(k.replace('-', "_"), v.clone());
-                    }
-                }
-            }
-        }
-        walk(&table, &mut flat);
-        if let Some(toml::Value::String(s)) = flat.get("siri_model").cloned() {
-            flat.insert(
-                "siri_model".into(),
-                toml::Value::Array(vec![toml::Value::String(s)]),
-            );
-        }
-        Ok(toml::Value::Table(flat).try_into()?)
+        load_settings_file(path)
     }
 
     fn save_settings(&self, path: &Path, s: &Settings) -> Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let text = format!(
-            "# Desk Echo Guard settings (saved by the GUI)\n{}",
-            toml::to_string(s)?
-        );
-        let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, text)?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+        save_settings_file(path, s)
     }
 }

@@ -1,11 +1,11 @@
 //! The boundary between the GUI and the audio program.
 //!
-//! The GUI only talks to [`Engine`].  Today it is implemented by
-//! [`crate::mock::MockEngine`] (fake devices and levels) because
-//! `echoguard-core` is being written in parallel.
+//! The GUI only talks to [`Engine`].  The real implementation is
+//! [`crate::core_engine::CoreEngine`] (echoguard-core + the WASAPI
+//! backend); [`crate::mock::MockEngine`] (fake devices and levels) is used
+//! for `--screenshot` and with `DEG_MOCK=1`.
 //!
-//! TODO(wiring): add `CoreEngine` implementing [`Engine`] on top of
-//! `echoguard-core` (DESIGN.md):
+//! Mapping to echoguard-core (DESIGN.md):
 //!   * `start`  -> `EchoGuard::start(&settings, backend.clone(), log)`
 //!   * `stop`   -> `EchoGuard::stop()` (bounded join)
 //!   * `status` -> `EchoGuard::status()`  (+ `engine_name()`)
@@ -15,142 +15,39 @@
 //!   * `calibrate` -> `core::calibrate(&s, backend, 4.0, level_db, log)`
 //!   * `autostart*` -> `winutil` (HKCU Run "DeskEchoGuard")
 //!   * `load_settings` / `save_settings` / `default_config_path` -> core settings
-//!
-//! and replace the mirror types below with re-exports from core
-//! (`pub use echoguard_core::{Settings, Status, CableStatus, CableAction}`).
-//! The field names here are identical to DESIGN.md, so the GUI code
-//! (src/ui/controller.rs) should not need changes beyond that.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 pub use echoguard_audio::{DeviceInfo, DeviceKind};
+pub use echoguard_core::vcable::{CableAction, CableStatus};
+pub use echoguard_core::{LogSink, Settings, Status};
 
-/// Log lines from the engine (any thread).
-pub type LogSink = Arc<dyn Fn(String) + Send + Sync>;
+use echoguard_core::vcable::ROLES;
 
-/// Mirror of `echoguard_core::Settings` (same keys and defaults as the
-/// Python `app.Settings`).  TODO(wiring): replace with the core type.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    pub mic: Option<String>,
-    pub speaker: Option<String>,
-    pub out: String,
-    pub engine: String,
-    pub noise_suppression: bool,
-    pub high_pass: bool,
-    pub agc: bool,
-    pub filter_ms: u32,
-    pub delay_ms: f64,
-    pub mic_delay_ms: f64,
-    pub output_gain_db: f64,
-    pub ref_buffer_ms: f64,
-    pub out_buffer_ms: f64,
-    pub max_ppm: f64,
-    pub blocksize: usize,
-    pub siri_guard: bool,
-    pub call_in: String,
-    pub siri_mode: String,
-    pub siri_model: Vec<String>,
-    pub siri_threshold: f64,
-    pub siri_profile: String,
-    pub siri_depth_db: Option<f64>,
-    pub siri_lookahead_s: f64,
-    pub spk_buffer_ms: f64,
-    pub debug_wav: Option<String>,
-    pub debug_max_s: f64,
-    pub stats_interval_s: f64,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            mic: None,
-            speaker: None,
-            out: "CABLE Input".into(),
-            engine: "auto".into(),
-            noise_suppression: true,
-            high_pass: true,
-            agc: false,
-            filter_ms: 300,
-            delay_ms: 0.0,
-            mic_delay_ms: 0.0,
-            output_gain_db: 0.0,
-            ref_buffer_ms: 20.0,
-            out_buffer_ms: 40.0,
-            max_ppm: 1000.0,
-            blocksize: 480,
-            siri_guard: false,
-            call_in: "CABLE-A Output".into(),
-            siri_mode: "always".into(),
-            siri_model: Vec::new(),
-            siri_threshold: 0.5,
-            siri_profile: "deep-wide".into(),
-            siri_depth_db: None,
-            siri_lookahead_s: 1.0,
-            spk_buffer_ms: 40.0,
-            debug_wav: None,
-            debug_max_s: 600.0,
-            stats_interval_s: 5.0,
-        }
-    }
-}
-
-/// Mirror of `echoguard_core::Status` (polled by the GUI ~7 times / s).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Status {
-    pub mic_db: f32,
-    pub ref_db: f32,
-    pub out_db: f32,
-    pub ref_buf_ms: f32,
-    pub drift_ppm: f32,
-    pub ref_underruns: u64,
-    pub out_underruns: u64,
-    pub aec_ms: f32,
-    pub siri_detections: u64,
-    pub mic_peak: f32,
-    pub error: Option<String>,
-}
-
-/// Mirror of `echoguard_core::vcable::CableStatus`.
-/// `names` keys: "out", "virtual_mic", "call_speaker", "call_in".
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CableStatus {
-    pub found: bool,
-    pub renamed: bool,
-    pub names: BTreeMap<&'static str, Option<String>>,
-    pub unused: Vec<String>,
-}
-
-impl CableStatus {
+/// GUI helpers on top of the core `CableStatus`.
+pub trait CableStatusExt {
     /// CABLE-A (VB-CABLE A+B) present: needed by the Hey Siri guard.
-    pub fn has_ab(&self) -> bool {
+    fn has_ab(&self) -> bool;
+}
+
+impl CableStatusExt for CableStatus {
+    fn has_ab(&self) -> bool {
         self.names.get("call_speaker").is_some_and(|n| n.is_some())
             && self.names.get("call_in").is_some_and(|n| n.is_some())
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CableAction {
-    Rename,
-    Hide,
-    Restore,
-}
-
 /// (original VB-Audio name, our friendly name) of each VB-Cable role, for
-/// the "整理 VB-Cable" dialog.  Mirrors `vcable::ROLES`.
+/// the "整理 VB-Cable" dialog, in the order the dialog lists them.
 pub const CABLE_RENAMES: [(&str, &str); 4] = [
-    ("CABLE Output", "回聲消除麥克風"),
-    ("CABLE-A Input", "Siri防護喇叭"),
-    ("CABLE Input", "EchoGuard 內部輸出（勿選）"),
-    ("CABLE-A Output", "EchoGuard 內部輸入（勿選）"),
+    (ROLES[1].original, ROLES[1].renamed), // virtual_mic
+    (ROLES[2].original, ROLES[2].renamed), // call_speaker
+    (ROLES[0].original, ROLES[0].renamed), // out
+    (ROLES[3].original, ROLES[3].renamed), // call_in
 ];
-pub const VBCABLE_DOWNLOAD_URL: &str = "https://vb-audio.com/Cable/";
+pub const VBCABLE_DOWNLOAD_URL: &str = echoguard_core::vcable::DOWNLOAD_URL;
 
 /// Everything the GUI needs from the audio program.
 ///
@@ -210,9 +107,20 @@ pub trait Engine: Send + Sync {
 
 /// `%APPDATA%\desk-echo-guard\echoguard.toml` (Python-compatible path).
 pub fn default_config_path() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("desk-echo-guard").join("echoguard.toml")
+    echoguard_core::default_config_path()
+}
+
+/// GUI settings load: unknown keys are ignored (non-strict), missing keys
+/// take their defaults.  The caller falls back to defaults on an error.
+pub fn load_settings_file(path: &Path) -> Result<Settings> {
+    echoguard_core::settings_from_table(&echoguard_core::load_config(path)?, false)
+}
+
+/// Save in the flat, Python-compatible format (via a temp file, so a crash
+/// never leaves a half-written settings file).
+pub fn save_settings_file(path: &Path, settings: &Settings) -> Result<()> {
+    let tmp = path.with_extension("toml.tmp");
+    echoguard_core::save_config(&tmp, settings)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }

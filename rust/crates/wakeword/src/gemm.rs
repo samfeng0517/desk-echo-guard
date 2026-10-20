@@ -18,8 +18,7 @@ pub fn round_up(x: usize, m: usize) -> usize {
 pub fn gemm(a: &[f32], m: usize, b: &PackedB, c: &mut [f32]) {
     assert!(a.len() >= m * b.k && c.len() >= m * b.np);
     #[cfg(target_arch = "x86_64")]
-    if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
-    {
+    if std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma") {
         // SAFETY: the CPU supports AVX2 and FMA (checked just above).
         unsafe { gemm_avx2(a, m, b, c) };
         return;
@@ -256,7 +255,13 @@ mod tests {
     #[test]
     #[ignore = "benchmark"]
     fn bench_gemm() {
-        for &(m, k, n) in &[(2368, 72, 24), (544, 144, 48), (48, 288, 96), (8, 512, 257), (1, 1536, 128)] {
+        for &(m, k, n) in &[
+            (2368, 72, 24),
+            (544, 144, 48),
+            (48, 288, 96),
+            (8, 512, 257),
+            (1, 1536, 128),
+        ] {
             let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32).collect();
             let pb = PackedB::from_fn(k, n, |i, j| ((i + j) % 5) as f32);
             let mut c = vec![0.0; m * pb.np];

@@ -78,7 +78,11 @@ impl Window {
         let one_d = rank == 1;
         let two = |v: Option<Vec<i64>>, def: i64| -> Result<[usize; 2]> {
             let v = v.unwrap_or_else(|| vec![def; rank]);
-            ensure!(v.len() == rank && v.iter().all(|&x| x >= 0), "{} 屬性錯誤", n.op);
+            ensure!(
+                v.len() == rank && v.iter().all(|&x| x >= 0),
+                "{} 屬性錯誤",
+                n.op
+            );
             Ok(if one_d {
                 [1, v[0] as usize]
             } else {
@@ -255,7 +259,11 @@ impl Model {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let g = onnx::parse_model(bytes)?;
-        ensure!(g.inputs.len() == 1, "模型必須只有一個輸入（有 {}）", g.inputs.len());
+        ensure!(
+            g.inputs.len() == 1,
+            "模型必須只有一個輸入（有 {}）",
+            g.inputs.len()
+        );
         ensure!(!g.outputs.is_empty(), "模型沒有輸出");
         let mut slot: HashMap<String, usize> = HashMap::new();
         let mut consts = Vec::new();
@@ -295,14 +303,23 @@ impl Model {
                 .first()
                 .ok_or_else(|| anyhow!("節點 {} 沒有輸出", n.name))?;
             let konst = |i: usize| -> Option<Arc<Tensor>> {
-                ins.get(i).copied().flatten().and_then(|s| known.get(&s).cloned())
+                ins.get(i)
+                    .copied()
+                    .flatten()
+                    .and_then(|s| known.get(&s).cloned())
             };
             let op = match n.op.as_str() {
                 "Constant" => {
-                    let t = ["value", "value_float", "value_floats", "value_int", "value_ints"]
-                        .iter()
-                        .find_map(|k| tensor_attr(n, k))
-                        .ok_or_else(|| anyhow!("不支援的 Constant 節點 {}", n.name))?;
+                    let t = [
+                        "value",
+                        "value_float",
+                        "value_floats",
+                        "value_int",
+                        "value_ints",
+                    ]
+                    .iter()
+                    .find_map(|k| tensor_attr(n, k))
+                    .ok_or_else(|| anyhow!("不支援的 Constant 節點 {}", n.name))?;
                     let s = get_slot(out_name, &mut slot);
                     let t = Arc::new(t);
                     known.insert(s, t.clone());
@@ -357,9 +374,12 @@ impl Model {
                     noop_empty: n.int("noop_with_empty_axes", 0) != 0,
                 },
                 "Conv" => {
-                    ensure!(n.int("group", 1) == 1, "Conv 只支援 group = 1（{}）", n.name);
-                    let w = konst(1)
-                        .ok_or_else(|| anyhow!("Conv {} 的權重必須是常數", n.name))?;
+                    ensure!(
+                        n.int("group", 1) == 1,
+                        "Conv 只支援 group = 1（{}）",
+                        n.name
+                    );
+                    let w = konst(1).ok_or_else(|| anyhow!("Conv {} 的權重必須是常數", n.name))?;
                     let ws = &w.shape;
                     ensure!(ws.len() == 3 || ws.len() == 4, "Conv 權重形狀 {ws:?}");
                     let kshape: Vec<i64> = ws[2..].iter().map(|&v| v as i64).collect();
@@ -733,7 +753,10 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
         // channels-last input only with scalar other operands (see `run`)
         Op::Binary(_) | Op::Clip { .. } if x.nhwc => {
             let mut y = x.clone();
-            ensure!(eval_inplace(op, &mut y, &ins[1..])?, "channels-last 運算失敗");
+            ensure!(
+                eval_inplace(op, &mut y, &ins[1..])?,
+                "channels-last 運算失敗"
+            );
             y
         }
         Op::Unary(u) => {
@@ -763,8 +786,12 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
         }
         Op::Cast(to) => match (*to, &x.data) {
             (1, Data::F32(_)) | (7, Data::I64(_)) => x.clone(),
-            (1, Data::I64(v)) => Tensor::f32(x.shape.clone(), v.iter().map(|&i| i as f32).collect()),
-            (_, Data::F32(v)) => Tensor::i64(x.shape.clone(), v.iter().map(|&f| f as i64).collect()),
+            (1, Data::I64(v)) => {
+                Tensor::f32(x.shape.clone(), v.iter().map(|&i| i as f32).collect())
+            }
+            (_, Data::F32(v)) => {
+                Tensor::i64(x.shape.clone(), v.iter().map(|&f| f as i64).collect())
+            }
             _ => bail!("Cast to {to}"),
         },
         Op::Unsqueeze(axes) => {
@@ -797,7 +824,10 @@ fn eval(op: &Op, ins: &[Option<&Tensor>], scratch: &mut Scratch) -> Result<Tenso
             };
             let rank = x.shape.len();
             let drop: Vec<usize> = match axes {
-                Some(a) => a.iter().map(|&a| norm_axis(a, rank)).collect::<Result<_>>()?,
+                Some(a) => a
+                    .iter()
+                    .map(|&a| norm_axis(a, rank))
+                    .collect::<Result<_>>()?,
                 None => (0..rank).filter(|&i| x.shape[i] == 1).collect(),
             };
             let shape = (0..rank)
@@ -1126,7 +1156,9 @@ fn reduce(x: &Tensor, kind: Red, axes: &[i64], keepdims: bool) -> Result<Tensor>
     let v = x.as_f32()?;
     let mut idx = vec![0usize; rank];
     for &val in v {
-        let o: usize = (0..rank).map(|d| if red[d] { 0 } else { idx[d] * ost[d] }).sum();
+        let o: usize = (0..rank)
+            .map(|d| if red[d] { 0 } else { idx[d] * ost[d] })
+            .sum();
         let r = &mut out[o];
         *r = match kind {
             Red::Max => r.max(val),
@@ -1475,7 +1507,9 @@ mod tests {
             (4, 10, 9, 8, 3, 1, 2, 3, 1, 0),
             (1, 1, 40, 9, 1, 8, 1, 5, 0, 0),
         ] {
-            let x: Vec<f32> = (0..c * h * w).map(|i| ((i * 31 % 17) as f32) - 8.0).collect();
+            let x: Vec<f32> = (0..c * h * w)
+                .map(|i| ((i * 31 % 17) as f32) - 8.0)
+                .collect();
             let wt: Vec<f32> = (0..oc * c * kh * kw)
                 .map(|i| ((i * 7 % 13) as f32 - 6.0) / 7.0)
                 .collect();
