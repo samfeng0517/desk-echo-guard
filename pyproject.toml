@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "desk-echo-guard"
-version = "0.2.1"
+version = "0.3.0"
 description = "System-wide AEC (speaker loopback -> VB-Cable virtual mic) and a Hey Siri anti-trigger filter for Discord/LINE calls on Windows"
 readme = "README.md"
 requires-python = ">=3.9"

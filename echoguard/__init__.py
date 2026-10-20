@@ -6,7 +6,7 @@ numpy/scipy (plus optional native AEC engines) and runs on any OS, which is
 what makes it testable offline.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 FS = 48000          # internal / device sample rate
 FRAME_MS = 10
