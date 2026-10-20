@@ -81,8 +81,7 @@ pub struct CoreEngine {
 impl CoreEngine {
     /// On the platform's default backend (WASAPI on Windows).
     pub fn new(log: LogSink) -> Self {
-        let backend = echoguard_audio::default_backend()
-            .map_err(|e| format!("無法使用 Windows 的音效系統（no audio backend：{e:#}）"));
+        let backend = echoguard_audio::default_backend().map_err(|e| format!("{e:#}"));
         Self::build(backend, log, DEVICE_POLL)
     }
 
