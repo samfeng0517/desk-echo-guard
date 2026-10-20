@@ -14,7 +14,7 @@ log.workspace = true
 # needed, so the crate also checks from Linux); elsewhere: rustls + the
 # platform verifier.
 [target.'cfg(windows)'.dependencies]
-ureq = { version = "3", default-features = false, features = ["native-tls-no-default"] }
+ureq = { version = "3", default-features = false, features = ["native-tls"]  # ureq checks this exact feature at run time }
 
 [target.'cfg(not(windows))'.dependencies]
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
