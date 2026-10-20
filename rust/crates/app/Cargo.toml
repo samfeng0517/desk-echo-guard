@@ -4,12 +4,43 @@ description = "Desk Echo Guard: system-wide echo cancellation for desk speakers 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [[bin]]
 name = "DeskEchoGuard"
 path = "src/main.rs"
 
+[features]
+default = []
+
 [dependencies]
 anyhow.workspace = true
-echoguard-core.workspace = true
+log.workspace = true
+serde.workspace = true
+toml.workspace = true
+# TODO(wiring): enable once echoguard-core exists; then replace MockEngine
+# with the CoreEngine in src/ui/controller.rs (see src/engine.rs).
+# echoguard-core.workspace = true
 echoguard-audio.workspace = true
+slint = { version = "1.18", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-femtovg",
+    "renderer-software",
+    "software-renderer-systemfonts",
+    "accessibility",
+    "raw-window-handle-06",
+] }
+png = "0.18"
+arboard = { version = "3", default-features = false }
+open = "5"
+
+[target.'cfg(windows)'.dependencies]
+tray-icon = "0.26"
+window-vibrancy = "0.8"
+rfd = { version = "0.17", default-features = false }
+
+[build-dependencies]
+slint-build = "1.18"
+winresource = "0.1"

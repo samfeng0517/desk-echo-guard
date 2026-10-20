@@ -3,9 +3,11 @@
 
 pub mod delay_line;
 pub mod resample;
+pub mod nlms;
 
 pub use delay_line::DelayLine;
 pub use resample::IntegerResampler;
+pub use nlms::Nlms16k;
 
 /// Internal / device sample rate.
 pub const FS: usize = 48_000;
