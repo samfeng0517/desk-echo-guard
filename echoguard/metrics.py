@@ -1,12 +1,9 @@
-"""Objective measures used by the offline tests / experiments.
-
-scipy is imported inside the functions: the real-time app only needs
-:func:`db`, and loading scipy.signal costs ~75 MB of RAM.
-"""
+"""Objective measures used by the offline tests / experiments."""
 
 from __future__ import annotations
 
 import numpy as np
+from scipy import signal
 
 from . import FS
 
@@ -35,7 +32,6 @@ def erle_db(mic: np.ndarray, out: np.ndarray, mask: np.ndarray | None = None,
 
 def best_lag(a: np.ndarray, b: np.ndarray, max_lag: int) -> int:
     """Lag (samples) by which b is delayed relative to a."""
-    from scipy import signal
     c = signal.correlate(b, a, mode="full", method="fft")
     mid = len(a) - 1
     seg = c[mid - max_lag: mid + max_lag + 1]
@@ -61,7 +57,6 @@ def snr_db(ref: np.ndarray, test: np.ndarray, align_max: int = 0) -> float:
 
 
 def band_energy_db(x: np.ndarray, lo: float, hi: float, fs: int = FS) -> float:
-    from scipy import signal
     f, p = signal.welch(x, fs=fs, nperseg=4096)
     sel = (f >= lo) & (f < hi)
     return db(float(np.sum(p[sel])))
@@ -70,7 +65,6 @@ def band_energy_db(x: np.ndarray, lo: float, hi: float, fs: int = FS) -> float:
 def log_spectral_distance(a: np.ndarray, b: np.ndarray, fs: int = FS,
                           lo: float = 0, hi: float | None = None) -> float:
     """Mean over STFT frames of RMS(dB difference) between spectra, in dB."""
-    from scipy import signal
     hi = hi or fs / 2
     n = min(len(a), len(b))
     f, _, A = signal.stft(a[:n], fs=fs, nperseg=1024)
@@ -87,7 +81,6 @@ def envelope_correlation(ref: np.ndarray, test: np.ndarray, fs: int = FS) -> flo
     """Cheap intelligibility proxy (STOI-like): mean correlation of 1/3-octave
     band envelopes (150 Hz .. 8 kHz) between clean and processed speech,
     over 384 ms segments.  1.0 = identical envelopes."""
-    from scipy import signal
     n = min(len(ref), len(test))
     ref, test = ref[:n], test[:n]
     f, _, R = signal.stft(ref, fs=fs, nperseg=1024, noverlap=512)

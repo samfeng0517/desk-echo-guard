@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy import signal
 
 from . import FS
 from .buffers import DelayLine
@@ -79,10 +80,7 @@ class NotchConfig:
 
 
 class NotchBank:
-    """Streaming linear-phase FIR multi-band-stop (overlap-save via FFT).
-
-    The filter's spectrum is computed once per block length and reused, so
-    each block costs one forward and one inverse real FFT."""
+    """Streaming linear-phase FIR multi-band-stop (overlap-save via FFT)."""
 
     def __init__(self, cfg: NotchConfig | None = None, fs: int = FS):
         self.cfg = cfg = cfg or NotchConfig()
@@ -90,20 +88,11 @@ class NotchBank:
         self.h = design_notch_fir(cfg, fs)
         self.delay = (len(self.h) - 1) // 2
         self._hist = np.zeros(len(self.h) - 1)
-        self._nfft = 0
-        self._H = None
 
     def process(self, x: np.ndarray) -> np.ndarray:
-        x = np.asarray(x, np.float64)
-        n, m = len(x), len(self._hist)
-        if not n:
-            return np.zeros(0, np.float32)
-        buf = np.concatenate((self._hist, x))
-        self._hist = buf[n:]
-        if self._nfft < n + m or self._nfft > 4 * (n + m):
-            self._nfft = 1 << int(np.ceil(np.log2(n + m)))
-            self._H = np.fft.rfft(self.h, self._nfft)
-        y = np.fft.irfft(np.fft.rfft(buf, self._nfft) * self._H, self._nfft)[m:m + n]
+        buf = np.concatenate((self._hist, np.asarray(x, np.float64)))
+        y = signal.fftconvolve(buf, self.h, mode="valid")
+        self._hist = buf[len(buf) - (len(self.h) - 1):]
         return y.astype(np.float32)
 
 
@@ -126,15 +115,9 @@ def notch_target_gain(cfg: NotchConfig, freqs: np.ndarray) -> np.ndarray:
 
 
 def design_notch_fir(cfg: NotchConfig, fs: int = FS) -> np.ndarray:
-    """Frequency-sampling design, same as ``scipy.signal.firwin2(numtaps,
-    freqs, gain, fs=fs, window=("kaiser", 6.0))`` for odd ``numtaps``."""
-    numtaps = cfg.numtaps
     freqs = np.linspace(0, fs / 2, 4097)
-    nyq = fs / 2
-    x = np.linspace(0.0, nyq, 1 + 2 ** int(np.ceil(np.log2(numtaps))))
-    fx = np.interp(x, freqs, notch_target_gain(cfg, freqs))
-    shift = np.exp(-(numtaps - 1) / 2.0 * 1j * np.pi * x / nyq)
-    return np.fft.irfft(fx * shift)[:numtaps] * np.kaiser(numtaps, 6.0)
+    return signal.firwin2(cfg.numtaps, freqs, notch_target_gain(cfg, freqs), fs=fs,
+                          window=("kaiser", 6.0))
 
 # detectors: feed(48 kHz block, start_index) -> list[(region_start, region_end)]
 # in absolute input-sample indices
@@ -250,8 +233,6 @@ class SibilantDetector(Detector):
         self.pre = int(pre_s * fs)
         self.dur = int(dur_s * fs)
         self.refractory = int(refractory_s * fs)
-        from scipy import signal  # only this detector needs scipy (~75 MB)
-        self._sosfilt = signal.sosfilt
         self.hb = signal.butter(4, [3500, 8000], btype="band", fs=fs, output="sos")
         self.zi = signal.sosfilt_zi(self.hb) * 0
         self.floor = 1e-6
@@ -271,7 +252,7 @@ class SibilantDetector(Detector):
             fr, self._pending = self._pending[:F], self._pending[F:]
             t = self._pending_start
             self._pending_start += F
-            hb, self.zi = self._sosfilt(self.hb, fr, zi=self.zi)
+            hb, self.zi = signal.sosfilt(self.hb, fr, zi=self.zi)
             e_hb = float(np.mean(hb ** 2))
             e = float(np.mean(fr.astype(np.float64) ** 2)) + 1e-12
             is_s = (e_hb > self.ratio * e and e_hb > self.rise * self.floor
@@ -348,9 +329,6 @@ class SiriGuard:
         n = len(x)
         if self.cfg.mode == "off":
             return x
-        if self.cfg.mode == "always":  # mask is all ones: out = wet
-            self._t += n
-            return self.notch.process(x)
         if self.detector is not None and self.cfg.mode in ("detect", "sibilant"):
             for a, b in self.detector.feed(x, self._t):
                 # earliest input index still ahead of (or in) this output block
