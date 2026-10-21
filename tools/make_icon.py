@@ -1,4 +1,4 @@
-"""Generate echoguard/assets/icon.ico + icon.png (needs Pillow).
+"""Generate assets/icon.ico + icon.png (needs Pillow).
 
     python tools/make_icon.py
 
@@ -11,7 +11,7 @@ import os
 from PIL import Image, ImageDraw
 
 S = 1024  # draw large, downsample for crisp small sizes
-OUT = os.path.join(os.path.dirname(__file__), "..", "echoguard", "assets")
+OUT = os.path.join(os.path.dirname(__file__), "..", "assets")
 
 
 def lerp(a, b, t):

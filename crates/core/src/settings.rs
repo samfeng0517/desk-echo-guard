@@ -479,7 +479,7 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
 
     #[test]
     fn reads_repo_example_config() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../echoguard.example.toml");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../echoguard.example.toml");
         let s = settings_from_table(&load_config(&path).unwrap(), true).unwrap();
         assert_eq!(s.mic.as_deref(), Some("USB"));
         assert_eq!(s.speaker.as_deref(), Some("Realtek"));

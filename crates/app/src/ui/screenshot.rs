@@ -1,7 +1,7 @@
 //! `DeskEchoGuard --screenshot DIR`: render every page (light and dark,
 //! plus tooltip / InfoBar / dialog examples) to PNG headlessly with Slint's
 //! software renderer and the mock engine.  Used for review and the docs
-//! (rust/docs/images).  Time is simulated, so hover delays and animations
+//! (docs/images).  Time is simulated, so hover delays and animations
 //! are deterministic.
 
 use std::cell::Cell;

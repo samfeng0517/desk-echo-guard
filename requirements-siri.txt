@@ -1,2 +1,0 @@
-openwakeword>=0.6.0     # --siri-mode detect (needs a trained hey_siri model)
-onnxruntime>=1.16

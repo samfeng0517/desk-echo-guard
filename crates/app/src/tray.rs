@@ -17,7 +17,7 @@ pub enum TrayCmd {
 /// Decode the embedded PNG icon to (rgba, width, height).
 #[allow(dead_code)]
 pub fn icon_rgba() -> Option<(Vec<u8>, u32, u32)> {
-    static PNG: &[u8] = include_bytes!("../../../../echoguard/assets/icon.png");
+    static PNG: &[u8] = include_bytes!("../../../assets/icon.png");
     let mut dec = png::Decoder::new(std::io::Cursor::new(PNG));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().ok()?;

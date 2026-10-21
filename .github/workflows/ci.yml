@@ -1,10 +1,9 @@
-name: Rust (rewrite)
+name: CI
 
 on:
-  push:
-    paths: ["rust/**", ".github/workflows/rust.yml"]
   pull_request:
-    paths: ["rust/**", ".github/workflows/rust.yml"]
+  push:
+    branches-ignore: [main]   # main is built by build-exe.yml
   workflow_dispatch:
 
 env:
@@ -13,17 +12,12 @@ env:
 jobs:
   windows:
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - run: cargo clippy --workspace --all-targets --release -- -D warnings
       - run: cargo test --workspace --release
       - run: cargo build --release -p desk-echo-guard
@@ -35,11 +29,10 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "self-test failed ($($p.ExitCode))" }
       - uses: actions/upload-artifact@v4
         with:
-          name: DeskEchoGuard-rust-windows
+          name: DeskEchoGuard-windows-ci
           path: |
-            rust/target/release/DeskEchoGuard.exe
-            rust/target/release/*.dll
-            rust/selftest.txt
+            target/release/DeskEchoGuard.exe
+            selftest.txt
 
   linux:
     runs-on: ubuntu-24.04
@@ -47,13 +40,9 @@ jobs:
       # webrtc-sys only reads plain CC / CXX
       CC: clang-21
       CXX: clang++-21
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - uses: actions/checkout@v4
       - name: clang 21 (libwebrtc's prebuilt archive needs it)
-        working-directory: .
         run: |
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
@@ -61,6 +50,4 @@ jobs:
           sudo apt-get install -y -qq clang-21 libfontconfig1-dev libxkbcommon-dev libglib2.0-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - run: cargo test --workspace --release

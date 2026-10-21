@@ -1,8 +1,5 @@
-__pycache__/
-*.pyc
-.cache/
-.pytest_cache/
+/target
+/dist/
+/selftest.txt
 debug/
-*.egg-info/
-build/
-dist/
+__pycache__/

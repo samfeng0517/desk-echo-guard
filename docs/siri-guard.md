@@ -1,126 +1,97 @@
 # Hey Siri 防誤觸
 
-[← 回 README](../README.md)
+[← 回 README](../README.md) ・ [5 分鐘上手](getting-started.md) ・ [常見問題](faq.md)
 
-要解決的問題：通話對方說「Hey Siri」，從你的喇叭播出來，把你的 HomePod / iPhone 叫醒。
+## 我需要這個嗎？
 
-做法是仿照 Apple 在 WWDC 2026 發表會被觀察到的手法：**不是靜音**，而是只在講到「Siri」的那一小段，削掉幾個窄頻帶。人聽得懂，偵測器比較認不出來。
+只有**同時符合**下面兩點才需要：
 
-接線上，Discord / LINE 的輸出改到 `CABLE-A Input`，程式從 `CABLE-A Output` 收到通話聲音，處理完再播到喇叭（見[運作原理](how-it-works.md#接線)）。
+- 你家裡有 **HomePod**，或 **iPhone / iPad** 開著「嘿 Siri」。
+- 通話時，對方說「Hey Siri」，從你的喇叭播出來，**真的把你的 Siri 叫醒過**。
 
-## 怎麼選
+沒遇過這個問題 → **不用開**，跳過這一頁就好。
 
-**陷波強度（profile）**
+## 它怎麼做到的（一句話版）
 
-| 設定 | 削掉的頻帶 | 深度 | 聽感 |
-|---|---|---|---|
-| `deep-wide`（預設） | 2.8–6.5 kHz 整段 | 70 dB | 稍微變暗 |
-| `apple-deep` | 3/4/5/6 kHz，各寬 400 Hz | 70 dB | 幾乎聽不出來 |
-| `apple-wide` | 2.8–6.5 kHz | 50 dB | 稍微變暗 |
-| `formant` | 1–3 kHz + 上述四個窄帶 | 70 dB | 明顯變悶，但仍聽得懂 |
+- 對方的聲音先經過本程式，再從喇叭播出來。
+- 程式把對方聲音裡 Siri 最在意的幾段**高音削掉**。人還是聽得懂，但 Siri 比較認不出來。
+- 這是仿照 Apple 在 WWDC 2026 發表會被觀察到的做法（Apple 沒有正式公開）。
 
-**模式**
+## 需要多裝什麼
 
-| 模式 | 什麼時候處理 | 通話多出的延遲 | 需要 |
-|---|---|---|---|
-| `always`（預設） | 一律處理 | 約 12.5 ms | — |
-| `sibilant` | 偵測到 /s/ 音（Siri 的開頭）後處理 0.45 s，其他含 s 的字也會被處理到 | 約 1 秒 | — |
-| `detect` | 喚醒詞模型偵測到「Hey Siri」才處理那一句 | 約 1 秒 | 自己訓練的模型，見 [tools/train_hey_siri](../tools/train_hey_siri/README.md) |
+除了原本的 VB-Cable，還要多裝**第二條虛擬音效線 VB-CABLE A+B**：
 
-**建議**
+1. 打開 <https://vb-audio.com/Cable/>。
+2. 在同一頁找到 **VB-CABLE A+B** 並下載。
+   - 它是「捐款軟體」：可以先免費下載使用，覺得好用再捐款給作者。
+3. 解壓縮 zip。
+4. 對資料夾裡的 **`VBCABLE_Setup_x64.exe`** 按右鍵 → **以系統管理員身分執行** → **是**。
+5. 按 **Install Driver**。
+6. **重新開機。**
 
-1. 用預設的 `deep-wide` + `always`。它涵蓋 `apple-deep` 的四個頻帶，再把中間的空隙也一起削掉。可以拿另一台裝置播「Hey Siri」影片，確認 HomePod / iPhone 不會被叫醒。
-   - 舊版的 `apple`（同 `apple-deep` 的頻帶、只削 30 dB）實機擋不住，已經移除；設定檔裡還寫著 `apple` 的話，會自動改用 `deep-wide`。
-2. 還會被叫醒的話，改用 `formant`。`formant` + `always` 會讓整通電話都變悶，所以最好搭配 `detect` 模式：只有約 1 秒的喚醒詞變悶，其他時間不受影響。代價是要先訓練模型，對方聲音也會延遲約 1 秒。
+裝好之後再做一次改名，讓名字好懂：
 
-為什麼這樣建議，見下方[實測效果](#實測效果)。
+1. 打開程式，點左邊的 **裝置**。
+2. 按 **整理 VB-Cable…**，勾 **改成好懂的名稱**，按確認，Windows 問的時候按 **是**。
+3. 改好後會多一個叫「**Siri防護喇叭**」的喇叭。
 
-## Apple 怎麼做：研究摘要
+## 怎麼開
 
-### WWDC 2026 主題演講的頻譜分析
+1. 點左邊的 **Hey Siri 防誤觸**。
+2. 打開 **啟用**。
+3. 到 Discord：**使用者設定 → 語音與視訊 → 輸出裝置** 選 **Siri防護喇叭**。
+   - 沒改名的話選 **CABLE-A Input**。
+   - LINE：**設定 → 通話 → 喇叭** 選 **Siri防護喇叭**。
+4. 程式的 **裝置** 頁裡的 **喇叭** 保持選你**真正的喇叭**，不要動。
+5. 關掉 Discord / LINE 再重開一次（剛改名的話才看得到新名字）。
 
-- 荷蘭音訊工程師 Luuk de Leest 在 X 上貼出頻譜圖：每次講到「Siri」時，**約 3、4、5、6 kHz 四個窄頻帶被削掉**，其他時間的音軌沒有動。
-- 報導稱之為「**動態陷波濾波器**」：只在講觸發詞的瞬間啟動。
-- 觀眾仍聽得懂，只是稍微變薄、有點「金屬感」。
-- **Apple 沒有官方證實。**
-- **效果不完全**：多名觀眾回報裝置還是被叫醒。
-- **公開資料沒有**：陷波的寬度、深度（dB）、起落時間。
-- 來源：
-  - [MacRumors](https://www.macrumors.com/2026/06/12/apple-cut-frequencies-to-prevent-siri-activations/)
-  - [heise online](https://www.heise.de/en/news/WWDC-2026-Apple-filtered-frequencies-to-prevent-Siri-activations-11333194.html)
-  - [TechRadar](https://www.techradar.com/ai-platforms-assistants/an-apple-siri-mystery-has-been-solved-by-an-audio-engineer-spectrogram-reveals-how-apple-stopped-voice-assistant-setting-off-millions-of-iphones-and-homepods-during-its-wwdc-2026-event)
-  - [Wccftech](https://wccftech.com/apple-modified-the-frequencies-of-its-wwdc-2026-keynote-to-avoid-triggering-your-devices-each-time-siri-was-mentioned/)
-  - [Stuff](https://www.stuff.tv/news/well-isnt-this-neat-apple-modified-the-way-siri-was-spoken-during-its-keynote-to-stop-your-iphone-from-listening/)
-  - 原始貼文：[@luuk58](https://x.com/luuk58/status/2064085109980987720)、[tech.explain](https://x.com/techexplain1/status/2069494958768504836)
+這是唯一多出來的通話軟體設定：**輸出（喇叭）改選「Siri防護喇叭」**。麥克風一樣選「回聲消除麥克風」。
 
-### Apple 的 Hey Siri 偵測器
+![Hey Siri 防誤觸頁](images/siri-light.png)
 
-資料來源：[Apple Machine Learning Research, 2017](https://machinelearning.apple.com/research/hey-siri)
+> **注意：** 開了之後，對方的聲音一定要經過本程式才播得出來。**程式沒在跑，你就聽不到對方。** 不想用了，記得把通話軟體的輸出改回你的喇叭。
 
-- 16 kHz 取樣，每 10 ms 一個 mel 頻譜框，約 0.2 秒的視窗送進 DNN。
-- 兩段式：先在低功耗處理器跑小模型，再由主處理器的大模型確認。
-- 有「說話者辨識」，會比對註冊時錄的 5 句。所以別人說「Hey Siri」**本來就不一定**叫得醒你的裝置。
-- 文章沒有說明任何針對電視或媒體聲音的防護。相關專利 [US20140222436A1](https://patents.google.com/patent/US20140222436A1/en) 也沒有。
+## 要選哪個模式、哪個強度？
 
-### 其他公司的做法
+**先用預設就好：**
 
-- **Amazon**
-  - 2017 年 Alexa 廣告的 3–6 kHz 被網友發現大幅衰減，但 Amazon 沒有證實。
-  - 官方說法是**聲紋指紋**：事先把廣告做指紋，放到 Echo 上比對後忽略；也會即時偵測很多家庭同時聽到同一句指令。
-  - 來源：[Amazon Science](https://amazon.science/blog/why-alexa-wont-wake-up-when-she-hears-her-name-in-amazons-super-bowl-ad)、[Popular Science](https://www.popsci.com/why-amazon-alexa-can-ignore-television/)
-- **Google**：有「錄製媒體熱詞抑制」專利（[US10867600B2](https://patents.google.com/patent/US10867600)），同樣靠指紋比對。
-- 指紋比對要**裝置端配合**，沒辦法對你的 HomePod 用。所以在聲音訊號這一端能做的，只剩修改頻譜這條路。
+| 項目 | 選這個 | 說明 |
+|---|---|---|
+| 模式 | **always**（一律處理） | 對方的聲音一直都處理。不會多出明顯的延遲。 |
+| 強度 | **deep-wide** | 聲音會稍微暗一點點，大多數人聽不太出來。 |
 
-## 實作方式
+**還是會被叫醒的話：**
 
-程式碼在 `echoguard/siri_guard.py`。
+| 強度 | 聽起來 | 什麼時候用 |
+|---|---|---|
+| **deep-wide**（預設） | 稍微變暗 | 先用這個 |
+| **apple-deep** | 幾乎聽不出來 | 想要聲音最自然，可以接受比較擋不住 |
+| **apple-wide** | 稍微變暗 | 和 deep-wide 差不多，削得比較淺 |
+| **formant** | 明顯變悶，但聽得懂 | deep-wide 擋不住時改用這個，最有效 |
 
-**陷波濾波器**
+**其他兩個模式（一般人不用）：**
 
-- 線性相位 FIR 多頻帶阻帶（1201 taps，群延遲 12.5 ms）。
-- 處理後的聲音和延遲後的原音逐樣本對齊，所以能用 `out = dry − m(t)·(dry − wet)` 平滑切換（預設 15 ms），不會有梳狀濾波的怪聲。
+- **sibilant**：只有聽到「斯」這類的音才處理。缺點是對方的聲音會**晚大約 1 秒**才聽到，聊天時會覺得卡卡的；其他有「斯」音的字也會被處理到。
+- **detect**：只有偵測到「Hey Siri」那一句才處理。要自己準備一個「喚醒詞模型檔」（要自己訓練，作者也還沒做過），對方聲音同樣會晚大約 1 秒。
 
-**偵測模式的時間控制**
+> 小技巧：用 **formant** 擋得住、但整通電話都變悶很困擾的話，可以研究 **detect** 模式，只讓「Hey Siri」那一秒變悶。這需要一些技術能力，見[訓練說明](../../tools/train_hey_siri/README.md)。
 
-- 通話聲音延遲約 1 秒（`lookahead`），偵測器跑在**還沒延遲**的輸入上。
-- 偵測器要等整句講完才會觸發；那時那一句還在緩衝區裡，所以能把整句處理完再播出。
+## 怎麼測試有沒有用
 
-## 實測效果
+1. 開好防誤觸，按 **開始**。
+2. 用另一台手機或電腦，透過 Discord / LINE 打給自己，或請朋友幫忙。
+3. 請對方說幾次「Hey Siri」（或播一段有人說「Hey Siri」的影片）。
+4. 看你的 HomePod / iPhone 有沒有被叫醒。
 
-拿不到 Siri 的偵測器，所以改用 openWakeWord 的開源模型（alexa、hey_jarvis、hey_mycroft）當替身，對 Piper TTS 合成的女聲和男聲做測試。
+## 老實說的限制
 
-- 數字是偵測分數（0–1，≥0.5 算觸發）；括號是 STOI 清晰度（1 = 完全不變）。
-- 重現：`experiments/guard_proxy_eval.py`（下表用 openWakeWord 0.6.0 的 ONNX 模型）。
+- **沒辦法保證 100% 擋住。** Apple 自己在發表會用類似方法，還是有觀眾的裝置被叫醒。
+- 作者實測：舊版比較淺的設定擋不住；目前預設的 **deep-wide** 還沒在 HomePod / iPhone 上正式實測過。
+- 用開源的語音偵測器測試時，只有 **formant** 明顯有效，其他強度幾乎擋不住。Siri 的偵測器是否一樣，沒有人知道。
+- **detect** 模式需要的模型，作者沒有實際訓練、測試過。
+- 開了之後，對方聲音要多繞一圈經過本程式；程式沒開就聽不到對方。
+- **最保險的做法**仍然是：通話時把 HomePod / iPhone 的「嘿 Siri」關掉，或把它放遠一點。另外，iPhone 的 Siri 本來就會比對「是不是主人的聲音」，所以別人說「Hey Siri」不一定每次都叫得醒。
 
-| 片語 / 聲音 | 原始 | deep-wide | apple-deep | apple-wide | formant |
-|---|---|---|---|---|---|
-| alexa / 女聲 | 1.00 | 1.00 (0.98) | 1.00 (0.97) | 1.00 (0.98) | **0.00** (0.92) |
-| alexa / 男聲 | 1.00 | 1.00 (0.98) | 1.00 (0.99) | 1.00 (0.98) | **0.00** (0.94) |
-| hey_jarvis / 女聲 | 1.00 | 1.00 (0.98) | 1.00 (0.98) | 1.00 (0.98) | 0.66 (0.94) |
-| hey_jarvis / 男聲 | 1.00 | 1.00 (0.99) | 1.00 (0.99) | 1.00 (0.99) | **0.00** (0.95) |
-| hey_mycroft / 女聲 | 0.00 | 0.00 (0.97) | 0.00 (0.98) | 0.00 (0.98) | 0.00 (0.95) |
-| hey_mycroft / 男聲 | 0.99 | **0.01** (0.99) | 0.94 (0.99) | **0.02** (0.99) | **0.00** (0.93) |
+## 想知道更多
 
-- hey_mycroft / 女聲在原始聲音就沒有觸發，這一列不能拿來比較。
-- 「Hey Siri」合成語音處理後的 STOI：`deep-wide` 0.98–0.99、`apple-deep` 0.98–0.99、`formant` 0.93–0.94。
-
-**`detect` 模式端到端測試**：用 hey_jarvis 當替身，喚醒詞放在句子中間。
-
-- 偵測器正確觸發，只處理了那一段（約 1.0 s），其他部分和原音完全相同。
-- 處理後的聲音再交給另一個偵測器：舊版 30 dB 的 `apple` 分數仍是 1.00；`formant` 降到 0.00–0.04。
-
-**結論**
-
-- **Apple 式的 3/4/5/6 kHz 窄頻陷波，對這三個開源偵測器幾乎沒效。** 它們主要依賴 3 kHz 以下的共振峰資訊，訓練時也做了大量資料增強。
-- 把整段 2.8–6.5 kHz 削掉（`deep-wide`、`apple-wide`）只多擋下一組（hey_mycroft / 男聲），其他照樣觸發。對開源偵測器來說，真正有效的還是削到 3 kHz 以下的 `formant`。
-- 這和 WWDC 觀眾「還是被叫醒」的回報一致。
-- Siri 的偵測器是否特別依賴 3–6 kHz 的 /s/ 音，**沒有公開證據**；唯一的間接線索是 Apple 自己選了這幾個頻帶。
-
-STOI 只看約 4.3 kHz 以下的頻段，所以對高頻陷波不太敏感。合成語音上量到 `deep-wide` 的目標頻帶衰減 ≥ 45 dB，2.5 kHz 以下的頻譜不變（LSD 0.00 dB），總能量只少 0.23 dB。其他驗證數據見[驗證結果](verification.md#hey-siri-陷波)。
-
-## 限制
-
-- Apple 的方法沒有公開。實機上 30 dB 的淺陷波擋不住 HomePod / iPhone；`deep-wide` 在實機上的效果**還沒實測**。
-- `detect` 模式要自己訓練模型，這部分**沒有實際訓練和測試過**。
-- `sibilant` 會處理到其他含 s 的字。
-- `detect` / `sibilant` 會讓對方的聲音晚約 1 秒才聽到，對話時感覺得出來；`always` 沒有這個延遲。
+詳細研究、Apple 和其他公司的做法、實測數據：[Hey Siri 防誤觸（研究與實測）](../../docs/siri-guard.md)。

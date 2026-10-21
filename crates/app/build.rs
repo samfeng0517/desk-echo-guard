@@ -11,9 +11,9 @@ fn main() {
 }
 
 fn windows_resources() {
-    println!("cargo:rerun-if-changed=../../../echoguard/assets/icon.ico");
+    println!("cargo:rerun-if-changed=../../assets/icon.ico");
     let mut res = winresource::WindowsResource::new();
-    res.set_icon("../../../echoguard/assets/icon.ico")
+    res.set_icon("../../assets/icon.ico")
         .set("ProductName", "Desk Echo Guard")
         .set("FileDescription", "Desk Echo Guard")
         .set("LegalCopyright", "MIT License")
