@@ -1,6 +1,6 @@
-# 複製成 echoguard.toml 後修改，執行：python -m echoguard --config echoguard.toml
+# 複製成 echoguard.toml 後修改，執行：DeskEchoGuard.exe --config echoguard.toml
 # 鍵名 = 命令列長選項名稱（- 或 _ 都可以）；命令列參數會覆蓋這裡的值。
-# 裝置名稱用「部分字串、不分大小寫」比對，先跑 python -m echoguard --list-devices 看名稱。
+# 裝置名稱用「部分字串、不分大小寫」比對，先跑 DeskEchoGuard.exe --list-devices 看名稱。
 
 [devices]
 mic = "USB"                   # 實體麥克風
