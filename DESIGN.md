@@ -1,13 +1,20 @@
 # desk-echo-guard (Rust) — design and porting contract
 
-This directory is a full Rust rewrite of the Python program in `../echoguard`.
-Goal: **feature parity** with the Python version (same settings file, same
-CLI options, same DSP behaviour and test thresholds), much lower RAM / CPU, a
-single fast-starting exe, and a redesigned Windows 11 style GUI.
+This repository is a full Rust rewrite of the original Python program
+(`echoguard/`).  Goal: **feature parity** with the Python version (same
+settings file, same CLI options, same DSP behaviour and test thresholds),
+much lower RAM / CPU, a single fast-starting exe, and a redesigned Windows 11
+style GUI.
 
-The Python code is the *reference implementation*: when this document and the
-Python code disagree about DSP behaviour, the Python code wins.  Port its
-tests too (same scenarios, same pass thresholds).
+The Python code was the *reference implementation* during the port: DSP
+behaviour, CLI options and test scenarios / pass thresholds were taken from
+it.  It was removed from the repository after the port (v0.4.0); the last
+Python release and its source are tag
+[`v0.3.1`](https://github.com/samfeng0517/desk-echo-guard/tree/v0.3.1).  The
+Python file names below (`buffers.py`, `cli.py`, ...) refer to that tag.
+
+User documentation is in [`docs/`](docs/); the GUI spec is
+[`crates/app/UI.md`](crates/app/UI.md).
 
 ## Crates
 
