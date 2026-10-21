@@ -12,7 +12,7 @@ use std::path::Path;
 use anyhow::Result;
 use echoguard_aec::{available_engines, make_engine, AecProcessor, EngineOptions};
 use echoguard_audio::DeviceKind;
-use echoguard_dsp::{band_energy_db, erle_db, make_scenario, synth_speech, FRAME};
+use echoguard_dsp::{band_energy_db, erle_db, make_scenario, synth_speech, FRAME, FS};
 
 use crate::pipeline::make_guard;
 use crate::settings::{config_text, parse_config, settings_from_table, Settings};
@@ -61,6 +61,17 @@ fn dsp_checks(lines: &mut Vec<String>) -> Result<bool> {
     let good = drop > 15.0;
     ok &= good;
     lines.push(format!("{} siri notch 4 kHz: -{drop:.1} dB", mark(good)));
+    let sibilant = make_guard(&Settings {
+        siri_mode: "sibilant".into(),
+        ..Default::default()
+    })?;
+    let ms = sibilant.latency() as f64 * 1000.0 / FS as f64;
+    let good = ms < 100.0;
+    ok &= good;
+    lines.push(format!(
+        "{} siri sibilant mode latency: {ms:.1} ms",
+        mark(good)
+    ));
     Ok(ok)
 }
 
@@ -70,24 +81,6 @@ fn settings_check() -> Result<bool> {
     let s = Settings::default();
     let back = settings_from_table(&parse_config(&config_text(&s))?, true)?;
     Ok(back == s)
-}
-
-/// Wake-word (`detect` mode) support: the ONNX Runtime is linked in; the
-/// openWakeWord feature models are downloaded on first use.
-fn wakeword_line() -> String {
-    let cached = echoguard_wakeword::cache_dir().filter(|d| {
-        d.join(echoguard_wakeword::MELSPEC_FILE).is_file()
-            && d.join(echoguard_wakeword::EMBEDDING_FILE).is_file()
-    });
-    match cached {
-        Some(d) => format!(
-            "ok   wake-word runtime built in, feature models in {} (detect mode)",
-            d.display()
-        ),
-        None => "info wake-word runtime built in; feature models are downloaded on first use \
-                 (detect mode)"
-            .into(),
-    }
 }
 
 fn device_lines(lines: &mut Vec<String>) {
@@ -140,7 +133,6 @@ pub fn run() -> (bool, Vec<String>) {
     let good = settings_check().unwrap_or(false);
     ok &= good;
     lines.push(format!("{} settings file round trip", mark(good)));
-    lines.push(wakeword_line());
     device_lines(&mut lines);
     lines.push(format!("RESULT: {}", if ok { "PASS" } else { "FAIL" }));
     (ok, lines)

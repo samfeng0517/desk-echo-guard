@@ -94,7 +94,6 @@ export global AppState {
     callback set-autostart(bool);
     callback copy-log();
     callback open-config-folder();
-    callback pick-model();
     callback pick-debug-folder();
 }
 
@@ -111,10 +110,8 @@ export global Cfg {
     in-out property <int> mic-delay-ms;
     in-out property <float> gain-db;
     in-out property <bool> siri-guard;
-    in-out property <int> siri-mode-index;    // always sibilant detect
+    in-out property <int> siri-mode-index;    // always sibilant
     in-out property <int> siri-profile-index; // deep-wide apple-deep apple-wide formant
-    in-out property <string> siri-model;
-    in-out property <float> siri-threshold: 0.5;
     in-out property <string> debug-wav;
 
     // called after every edit: Rust saves and, if running, re-applies

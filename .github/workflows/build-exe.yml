@@ -46,8 +46,8 @@ jobs:
           files: dist/DeskEchoGuard.exe
           generate_release_notes: true
           body: |
-            **全新改寫版（Rust）**：更省記憶體與 CPU、單一 exe 秒開、Windows 11 風格介面，每個選項都有滑鼠提示。
             第一次使用請看[5 分鐘上手](https://github.com/samfeng0517/desk-echo-guard/blob/main/docs/getting-started.md)；遇到問題看[常見問題](https://github.com/samfeng0517/desk-echo-guard/blob/main/docs/faq.md)。
+            下載 `DeskEchoGuard.exe` 即可使用（單一檔案，不用安裝），另外需要安裝 [VB-Cable](https://vb-audio.com/Cable/)。
 
-            > 這一版通過了所有自動測試與 Windows 上的自我檢測，但還沒有在接真實麥克風 / 喇叭 / VB-Cable 的電腦上長時間使用過。
-            > 如果遇到問題，舊版 [v0.3.1](https://github.com/samfeng0517/desk-echo-guard/releases/tag/v0.3.1) 仍可下載使用（設定檔共用，可以直接換回去），也歡迎開 issue 回報。
+            > 從 v0.4.0 起是 Rust 改寫版，通過所有自動測試與 Windows 自我檢測，但實機使用時間還不長。
+            > 遇到問題可以先改用 [v0.3.1](https://github.com/samfeng0517/desk-echo-guard/releases/tag/v0.3.1)（設定檔共用），也歡迎開 issue 回報。

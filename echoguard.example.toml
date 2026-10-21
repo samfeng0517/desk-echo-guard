@@ -20,8 +20,5 @@ mic_delay_ms = 0              # 只有 --calibrate 顯示參考訊號「晚到�
 [siri]
 siri_guard = false
 call_in = "CABLE-A Output"    # Discord/LINE 的「輸出裝置」設成 CABLE-A Input
-siri_mode = "always"          # detect（需模型）| sibilant | always
-# siri_model = "models/hey_siri.onnx"
-siri_profile = "deep-wide"    # deep-wide | apple-deep | apple-wide | formant
-siri_threshold = 0.5
-siri_lookahead_s = 1.0
+siri_mode = "always"          # always | sibilant（只在「s」音時處理，延遲約 0.07 秒）
+siri_profile = "deep-wide"    # deep-wide | apple-deep（子音較清楚）| apple-wide | formant

@@ -60,6 +60,7 @@ struct Run {
     since: Instant,
     engine: String,
     siri: bool,
+    siri_latency_ms: f64,
 }
 
 pub struct MockEngine {
@@ -112,9 +113,6 @@ const VBB: &str = " (VB-Audio Cable B)";
 impl Engine for MockEngine {
     fn start(&self, s: &Settings) -> Result<()> {
         self.sleep(600);
-        if s.siri_guard && s.siri_mode == "detect" && s.siri_model.is_empty() {
-            bail!("detect mode needs --siri-model");
-        }
         if !self.opts.cable {
             bail!("no speaker matches \"CABLE Input\". Available:\n  喇叭 (Realtek(R) Audio)");
         }
@@ -133,6 +131,12 @@ impl Engine for MockEngine {
             since: Instant::now(),
             engine,
             siri: s.siri_guard,
+            // like the real guard: notch delay (+ the sibilant lookahead)
+            siri_latency_ms: if s.siri_mode == "sibilant" {
+                72.5
+            } else {
+                12.5
+            },
         });
         Ok(())
     }
@@ -201,7 +205,11 @@ impl Engine for MockEngine {
     }
 
     fn guard_latency_ms(&self) -> Option<f64> {
-        self.run.lock().as_ref().filter(|r| r.siri).map(|_| 12.5)
+        self.run
+            .lock()
+            .as_ref()
+            .filter(|r| r.siri)
+            .map(|r| r.siri_latency_ms)
     }
 
     fn devices(&self) -> Result<Vec<DeviceInfo>> {

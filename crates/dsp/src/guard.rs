@@ -176,11 +176,7 @@ pub enum GuardMode {
 }
 
 impl GuardMode {
-    pub const ALL: [GuardMode; 3] = [
-        GuardMode::Sibilant,
-        GuardMode::Always,
-        GuardMode::Off,
-    ];
+    pub const ALL: [GuardMode; 3] = [GuardMode::Sibilant, GuardMode::Always, GuardMode::Off];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -477,50 +473,42 @@ mod tests {
         }
     }
 
-    #[test]
-    fn detect_mode_only_touches_phrase_and_uses_lookahead() {
-        let x = synth_speech(6.0, 6);
-        let (a, b) = (2 * FSI, (2.7 * FS as f64) as i64); // the "Hey Siri" region
-        let det = OracleDetector::new(vec![(a, b)]); // fires once the phrase has ended
-        let cfg = GuardConfig {
-            mode: GuardMode::Detect,
-            lookahead_s: 1.0,
-            ..Default::default()
-        };
-        let mut g = SiriGuard::new(cfg, Some(Box::new(det))).unwrap();
-        let y = g.process_signal(&x, 480);
-        let r = g.ramp() as i64;
-        let (a_u, b_u) = (a as usize, b as usize);
-        // FIR half-length margin
-        let outside = (0..(a - r - 700) as usize).chain((b + r + 700) as usize..x.len());
-        let max_out = outside.map(|i| (y[i] - x[i]).abs()).fold(0.0f32, f32::max);
-        assert!(
-            max_out < 1e-4,
-            "audio outside the phrase must be bit-identical-ish: {max_out}"
-        );
-        let (sx, sy) = (&x[a_u..b_u], &y[a_u..b_u]);
-        let drop = g
-            .notch_config()
-            .bands
-            .iter()
-            .map(|&(lo, hi)| band_energy_db(sx, lo, hi) - band_energy_db(sy, lo, hi))
-            .fold(f64::INFINITY, f64::min);
-        println!(
-            "[metrics] siri_guard_detect[oracle]: phrase_band_attenuation_dB_min={drop:.2}, \
-             latency_ms={:.2}, outside_max_abs_diff={max_out:.2e}",
-            g.latency() as f64 / FS as f64 * 1000.0
-        );
-        assert!(drop > 20.0);
-        assert_eq!(g.detections(), 1);
+    /// Test helper: fixed regions, reported once they have fully arrived
+    /// (like a keyword spotter), with a claimed (possibly understated)
+    /// report delay.
+    struct OracleDetector {
+        regions: Vec<(i64, i64)>,
+        given: Vec<bool>,
+        claimed_delay: usize,
+    }
+
+    impl Detector for OracleDetector {
+        fn feed(&mut self, x: &[f32], start: i64) -> Vec<(i64, i64)> {
+            let end = start + x.len() as i64;
+            let mut out = Vec::new();
+            for (i, &(a, b)) in self.regions.iter().enumerate() {
+                if !self.given[i] && b <= end {
+                    self.given[i] = true;
+                    out.push((a, b));
+                }
+            }
+            out
+        }
+        fn report_delay(&self) -> usize {
+            self.claimed_delay
+        }
     }
 
     #[test]
     fn detection_too_late_is_clamped_not_crashing() {
         let x = synth_speech(3.0, 7);
-        let det = OracleDetector::new(vec![((0.2 * FS as f64) as i64, FSI)]);
+        let det = OracleDetector {
+            regions: vec![((0.2 * FS as f64) as i64, FSI)],
+            given: vec![false],
+            claimed_delay: 0, // understated: the region is reported 0.8 s late
+        };
         let cfg = GuardConfig {
-            mode: GuardMode::Detect,
-            lookahead_s: 0.2, // lookahead too short
+            mode: GuardMode::Sibilant,
             ..Default::default()
         };
         let mut g = SiriGuard::new(cfg, Some(Box::new(det))).unwrap();
@@ -528,6 +516,86 @@ mod tests {
         assert_eq!(y.len(), x.len());
         assert!(y.iter().all(|v| v.is_finite()));
         assert_eq!(g.detections(), 1);
+        assert_eq!(g.clamped(), 1);
+    }
+
+    fn sibilant_guard() -> SiriGuard {
+        let cfg = GuardConfig {
+            mode: GuardMode::Sibilant,
+            ..Default::default()
+        };
+        SiriGuard::new(cfg, Some(Box::new(SibilantDetector::default()))).unwrap()
+    }
+
+    #[test]
+    fn sibilant_mode_latency_is_short_and_derived() {
+        let g = sibilant_guard();
+        let det = SibilantDetector::default();
+        // frame - 1 + pre (30 ms) + ramp (15 ms) + 5 ms margin
+        let want = SibilantDetector::FRAME - 1 + det.pre() as usize + g.ramp() + 240;
+        assert_eq!(g.lookahead(), want);
+        assert_eq!(g.latency(), 600 + want);
+        let ms = g.latency() as f64 / FS as f64 * 1000.0;
+        println!("[metrics] siri_guard_sibilant: latency_ms={ms:.2}");
+        assert!(g.latency() < FS / 10, "{ms} ms");
+    }
+
+    /// Silence, then /s/-like hiss bursts at frame-unaligned onsets.
+    fn hiss_bursts(onsets: &[usize], len: usize) -> Vec<f32> {
+        let mut rng = StdRng::seed_from_u64(3);
+        let noise: Vec<f64> = (0..(0.15 * FS as f64) as usize)
+            .map(|_| StandardNormal.sample(&mut rng))
+            .collect();
+        let hiss = Sos::new(&HISS_SOS).process(&noise);
+        let sd = crate::filters::std(&hiss);
+        let mut x = vec![0.0f32; len];
+        for &o in onsets {
+            for (k, &h) in hiss.iter().enumerate() {
+                x[o + k] += (0.1 * h / sd) as f32;
+            }
+        }
+        x
+    }
+
+    #[test]
+    fn sibilant_mode_notches_burst_from_its_onset_without_clamping() {
+        let onsets = [FS / 2 + 123, (1.3 * FS as f64) as usize + 479, 2 * FS + 1];
+        let x = hiss_bursts(&onsets, 3 * FS);
+        let (lo, hi) = (4200.0, 6300.0); // inside both the hiss and the notch band
+        for block in [480usize, 1, 7, 64, 333, 479, 481, 1000] {
+            let mut g = sibilant_guard();
+            let y = g.process_signal(&x, block);
+            assert_eq!(g.detections(), onsets.len() as u64, "block {block}");
+            assert_eq!(g.clamped(), 0, "block {block}");
+            for &o in &onsets {
+                // first and second 10 ms after the onset
+                for (w, k) in [(o, 0), (o + FS / 100, 1)] {
+                    let n = FS / 100;
+                    let drop =
+                        band_energy_db(&x[w..w + n], lo, hi) - band_energy_db(&y[w..w + n], lo, hi);
+                    if block == 480 && o == onsets[0] {
+                        println!(
+                            "[metrics] siri_guard_sibilant: onset_window{k}_band_drop_dB={drop:.2}"
+                        );
+                    }
+                    assert!(drop > 20.0, "block {block}, onset {o}, window {k}: {drop}");
+                }
+            }
+            // the silence well before the first burst stays untouched
+            let quiet = onsets[0] - (0.1 * FS as f64) as usize;
+            assert!(y[..quiet].iter().all(|v| v.abs() < 1e-6), "block {block}");
+        }
+    }
+
+    #[test]
+    fn sibilant_mode_on_speech_never_clamps() {
+        let x = synth_speech(8.0, 9);
+        for block in [480usize, 97, 1024] {
+            let mut g = sibilant_guard();
+            let y = g.process_signal(&x, block);
+            assert!(y.iter().all(|v| v.is_finite()));
+            assert_eq!(g.clamped(), 0, "block {block}");
+        }
     }
 
     /// `butter(4, [4000, 8000], btype="band", fs=48000, output="sos")` (scipy).
@@ -663,7 +731,8 @@ mod tests {
         };
         assert!(SiriGuard::new(cfg.clone(), None).is_err());
         let g = SiriGuard::new(cfg, Some(Box::new(SibilantDetector::default()))).unwrap();
-        assert_eq!(g.latency(), 600 + FS);
+        assert!(g.latency() > 600 && g.latency() < FS / 10);
+        assert!("detect".parse::<GuardMode>().is_err());
         // off: untouched passthrough
         let mut off = SiriGuard::new(
             GuardConfig {

@@ -20,7 +20,7 @@ use crate::tray::{Tray, TrayCmd};
 use crate::{AppState, AppWindow, Cfg, DiagRow, InfoBarData, Severity};
 
 pub const ENGINES: [&str; 5] = ["auto", "webrtc", "speex", "nlms", "off"];
-pub const MODES: [&str; 3] = ["always", "sibilant", "detect"];
+pub const MODES: [&str; 2] = ["always", "sibilant"];
 pub const PROFILES: [&str; 4] = ["deep-wide", "apple-deep", "apple-wide", "formant"];
 
 const LOG_LINES: usize = 300;
@@ -301,7 +301,6 @@ impl Controller {
                 }
             })
         });
-        app.on_pick_model(|| with_ctrl(|c| c.pick_model()));
         app.on_pick_debug_folder(|| with_ctrl(|c| c.pick_debug_folder()));
         ui.global::<Cfg>()
             .on_changed(|| with_ctrl(|c| c.read_cfg()));
@@ -443,8 +442,6 @@ impl Controller {
             &s_.siri_profile
         };
         cfg.set_siri_profile_index(idx(&PROFILES, profile));
-        cfg.set_siri_model(s(s_.siri_model.first().cloned().unwrap_or_default()));
-        cfg.set_siri_threshold(s_.siri_threshold as f32);
         cfg.set_debug_wav(s(s_.debug_wav.clone().unwrap_or_default()));
         drop(st);
         self.write_device_indexes();
@@ -492,13 +489,6 @@ impl Controller {
         n.siri_guard = cfg.get_siri_guard();
         n.siri_mode = pick(&MODES, cfg.get_siri_mode_index(), "always");
         n.siri_profile = pick(&PROFILES, cfg.get_siri_profile_index(), "deep-wide");
-        let model = cfg.get_siri_model().to_string();
-        n.siri_model = if model.is_empty() {
-            vec![]
-        } else {
-            vec![model]
-        };
-        n.siri_threshold = (cfg.get_siri_threshold() as f64 * 100.0).round() / 100.0;
         let dbg = cfg.get_debug_wav().to_string();
         n.debug_wav = (!dbg.is_empty()).then_some(dbg);
         if let Some(m) = st.mic_opts.get(cfg.get_mic_index().max(0) as usize) {
@@ -562,19 +552,7 @@ impl Controller {
         if !running {
             return;
         }
-        if let Some(why) = self.invalid_reason() {
-            self.log(why);
-            self.refresh_bars();
-            return;
-        }
         self.stop(AfterStop::Apply);
-    }
-
-    fn invalid_reason(&self) -> Option<String> {
-        let st = self.st.borrow();
-        let s_ = &st.settings;
-        (s_.siri_guard && s_.siri_mode == "detect" && s_.siri_model.is_empty())
-            .then(|| "「偵測到 Hey Siri 才處理」需要模型檔。".to_string())
     }
 
     // ------------------------------------------------------------ devices
@@ -755,15 +733,6 @@ impl Controller {
 
     pub fn start(&self, reason: StartReason) {
         if self.st.borrow().busy {
-            return;
-        }
-        if let Some(why) = self.invalid_reason() {
-            self.st.borrow_mut().start_error = Some(why.clone());
-            self.log(why);
-            self.refresh_bars();
-            if !matches!(reason, StartReason::Auto(_)) {
-                self.show_window();
-            }
             return;
         }
         self.save_now();
@@ -1105,28 +1074,6 @@ impl Controller {
                 "在 VB-Audio 網站同一頁下載 VB-CABLE A+B，安裝後重新開機。",
             ));
         }
-        if st.settings.siri_guard
-            && st.settings.siri_mode == "detect"
-            && st.settings.siri_model.is_empty()
-        {
-            let b = bar(
-                Severity::Warning,
-                "還沒選模型檔",
-                "「偵測到 Hey Siri 才處理」需要喚醒詞模型檔。請選擇模型檔，或改用「一直處理」。",
-                "前往設定",
-                "goto-siri",
-                "到「Hey Siri 防誤觸」頁選擇模型檔。",
-            );
-            home.push(b.clone());
-            siri.push(bar(
-                Severity::Warning,
-                "還沒選模型檔",
-                "「偵測到 Hey Siri 才處理」需要喚醒詞模型檔。請在下方選擇，或改用「一直處理」。",
-                "",
-                "",
-                "",
-            ));
-        }
         if let Some((ok, msg)) = &st.cable_result {
             devices.push(if *ok {
                 bar(
@@ -1230,11 +1177,6 @@ impl Controller {
                     self.engine.cable_display_name(&st.devices, "call_speaker")
                 };
                 self.copy(&name);
-            }
-            "goto-siri" => {
-                if let Some(ui) = self.ui() {
-                    ui.global::<AppState>().set_page(2);
-                }
             }
             "apply-calib" => self.apply_calibration(),
             _ => {}
@@ -1457,16 +1399,6 @@ impl Controller {
         }
     }
 
-    fn pick_model(&self) {
-        if let Some(p) = pick_file() {
-            if let Some(ui) = self.ui() {
-                ui.global::<Cfg>()
-                    .set_siri_model(s(p.display().to_string()));
-            }
-            self.read_cfg();
-        }
-    }
-
     fn pick_debug_folder(&self) {
         if let Some(p) = pick_folder() {
             if let Some(ui) = self.ui() {
@@ -1565,8 +1497,6 @@ fn friendly_start_error(err: &str) -> String {
         "這台電腦的音效系統無法使用（需要 Windows 10 / 11）。".into()
     } else if e.contains("cable") {
         "找不到 VB-Cable。請確認已安裝 VB-Cable 並重新開機過。".into()
-    } else if e.contains("siri-model") || e.contains("模型") {
-        "「偵測到 Hey Siri 才處理」需要模型檔，請到「Hey Siri 防誤觸」頁選擇。".into()
     } else if e.contains("no mic") || e.contains("no speaker") || e.contains("device") {
         format!(
             "找不到選擇的音效裝置，可能被拔掉了。請到「裝置」頁重新選擇。（{}）",
@@ -1578,15 +1508,6 @@ fn friendly_start_error(err: &str) -> String {
 }
 
 #[cfg(windows)]
-fn pick_file() -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .set_title("選擇喚醒詞模型檔")
-        .add_filter("喚醒詞模型", &["onnx", "tflite"])
-        .add_filter("所有檔案", &["*"])
-        .pick_file()
-}
-
-#[cfg(windows)]
 fn pick_folder() -> Option<PathBuf> {
     rfd::FileDialog::new()
         .set_title("選擇除錯錄音資料夾")
@@ -1594,11 +1515,6 @@ fn pick_folder() -> Option<PathBuf> {
 }
 
 // No file dialog dependency on other platforms (development only).
-#[cfg(not(windows))]
-fn pick_file() -> Option<PathBuf> {
-    std::env::var_os("DEG_PICK_FILE").map(PathBuf::from)
-}
-
 #[cfg(not(windows))]
 fn pick_folder() -> Option<PathBuf> {
     std::env::var_os("DEG_PICK_FOLDER").map(PathBuf::from)

@@ -15,7 +15,6 @@ hound.workspace = true
 serde_json = "1"
 echoguard-dsp.workspace = true
 echoguard-aec.workspace = true
-echoguard-wakeword.workspace = true
 ctrlc = "3"
 rand.workspace = true
 rand_distr.workspace = true

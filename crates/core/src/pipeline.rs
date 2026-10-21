@@ -6,7 +6,7 @@
 //!     [physical mic] -----------> AEC ---out_buf--> [CABLE Input]  (Discord/LINE mic = CABLE Output)
 //!
 //!     (siri_guard)
-//!     [CABLE-A Output] --> SiriGuard (~1 s lookahead) --spk_buf--> [speakers]
+//!     [CABLE-A Output] --> SiriGuard (sibilant: ~60 ms lookahead) --spk_buf--> [speakers]
 //!          ^ Discord/LINE output device = CABLE-A Input
 //! ```
 //!
@@ -24,7 +24,7 @@ use std::sync::{Arc, Once, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use echoguard_aec::{make_engine, AecProcessor, EngineOptions};
 use echoguard_audio::{AudioBackend, DeviceKind, InputStream, OutputStream};
 use echoguard_dsp::{
@@ -376,36 +376,17 @@ fn aec_loop(
 // ----------------------------------------------------------------- pipeline
 
 /// Build the Siri guard from the settings (`siri_guard.make_guard`):
-/// `detect` needs wake-word models, `sibilant` uses the built-in detector,
+/// `sibilant` uses the built-in /s/ detector (lookahead derived from it),
 /// `always` notches all the time.
 pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
     let notch = NotchConfig::profile(&s.siri_profile, s.siri_depth_db)?;
     let mode: GuardMode = s.siri_mode.parse()?;
     let cfg = GuardConfig {
         mode,
-        lookahead_s: s.siri_lookahead_s,
         notch,
         ..Default::default()
     };
     let det: Option<Box<dyn Detector>> = match mode {
-        GuardMode::Detect => {
-            if s.siri_model.is_empty() {
-                bail!(
-                    "--siri-mode detect needs --siri-model path/to/hey_siri.onnx \
-                     (see tools/train_hey_siri/README.md), or use --siri-mode \
-                     sibilant / always"
-                );
-            }
-            let paths: Vec<PathBuf> = s.siri_model.iter().map(PathBuf::from).collect();
-            let pre = 0.9f64.min(s.siri_lookahead_s - 0.05);
-            Some(Box::new(echoguard_wakeword::OpenWakeWordDetector::new(
-                &paths,
-                s.siri_threshold as f32,
-                pre,
-                0.15,
-                1.0,
-            )?))
-        }
         GuardMode::Sibilant => Some(Box::new(SibilantDetector::default())),
         GuardMode::Always | GuardMode::Off => None,
     };
@@ -796,10 +777,13 @@ mod tests {
         assert!(g.latency() < FS / 10);
         s.siri_mode = "sibilant".into();
         let g = make_guard(&s).unwrap();
-        assert!(g.latency() >= FS);
-        s.siri_mode = "detect".into();
-        let e = make_guard(&s).err().unwrap().to_string();
-        assert!(e.contains("--siri-model"), "{e}");
+        assert!(
+            g.latency() > 600 && g.latency() < FS / 10,
+            "{}",
+            g.latency()
+        );
+        s.siri_mode = "detect".into(); // removed in 0.4.1 (settings map it)
+        assert!(make_guard(&s).is_err());
         s.siri_mode = "bogus".into();
         assert!(make_guard(&s).is_err());
         s.siri_mode = "always".into();

@@ -18,6 +18,15 @@ use echoguard_dsp::DEFAULT_PROFILE;
 /// (`siri_guard.LEGACY_PROFILES`).
 const LEGACY_PROFILES: &[(&str, &str)] = &[("apple", DEFAULT_PROFILE)];
 
+/// `siri_mode` values from older versions: the wake-word `detect` mode was
+/// removed in 0.4.1; its files get the model-free `sibilant` mode.
+const LEGACY_MODES: &[(&str, &str)] = &[("detect", "sibilant")];
+
+/// Keys of removed settings (the `detect` mode, removed in 0.4.1).  Files
+/// written by older versions contain them, so they are accepted and ignored
+/// even in strict mode, and no longer written.
+pub const LEGACY_KEYS: &[&str] = &["siri_model", "siri_threshold", "siri_lookahead_s"];
+
 /// Every setting of the program; field names, order and defaults are those
 /// of `app.Settings`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -50,13 +59,10 @@ pub struct Settings {
     pub siri_guard: bool,
     /// where Discord/LINE output arrives
     pub call_in: String,
-    /// always | sibilant | detect (needs siri_model)
+    /// always | sibilant | off
     pub siri_mode: String,
-    pub siri_model: Vec<String>,
-    pub siri_threshold: f64,
     pub siri_profile: String,
     pub siri_depth_db: Option<f64>,
-    pub siri_lookahead_s: f64,
     pub spk_buffer_ms: f64,
     /// directory: dump mic/ref/out(/call) wavs
     pub debug_wav: Option<String>,
@@ -85,11 +91,8 @@ impl Default for Settings {
             siri_guard: false,
             call_in: "CABLE-A Output".into(),
             siri_mode: "always".into(),
-            siri_model: Vec::new(),
-            siri_threshold: 0.5,
             siri_profile: DEFAULT_PROFILE.into(),
             siri_depth_db: None,
-            siri_lookahead_s: 1.0,
             spk_buffer_ms: 40.0,
             debug_wav: None,
             debug_max_s: 600.0,
@@ -118,11 +121,8 @@ pub const FIELDS: &[&str] = &[
     "siri_guard",
     "call_in",
     "siri_mode",
-    "siri_model",
-    "siri_threshold",
     "siri_profile",
     "siri_depth_db",
-    "siri_lookahead_s",
     "spk_buffer_ms",
     "debug_wav",
     "debug_max_s",
@@ -209,8 +209,8 @@ fn as_uint(k: &str, v: &Value) -> Result<u64> {
 
 /// Settings from a flattened table (see [`load_config`]); missing keys take
 /// their defaults.  `strict`: an unknown key is an error (CLI `--config`);
-/// otherwise unknown keys are ignored (GUI).  `siri_model` may be a string
-/// or a list of strings; integers are accepted for float settings.
+/// otherwise unknown keys are ignored (GUI).  [`LEGACY_KEYS`] are ignored in
+/// both modes; integers are accepted for float settings.
 pub fn settings_from_table(t: &Table, strict: bool) -> Result<Settings> {
     let mut s = Settings::default();
     for (k, v) in t {
@@ -237,17 +237,13 @@ pub fn settings_from_table(t: &Table, strict: bool) -> Result<Settings> {
             }
             "siri_guard" => s.siri_guard = as_bool(k, v)?,
             "call_in" => s.call_in = as_str(k, v)?,
-            "siri_mode" => s.siri_mode = as_str(k, v)?,
-            "siri_model" => {
-                s.siri_model = match v {
-                    Value::String(m) => vec![m.clone()],
-                    Value::Array(a) => {
-                        a.iter().map(|m| as_str(k, m)).collect::<Result<Vec<_>>>()?
-                    }
-                    _ => bail!("{k}: expected a string or a list of strings"),
-                }
+            "siri_mode" => {
+                let m = as_str(k, v)?;
+                s.siri_mode = LEGACY_MODES
+                    .iter()
+                    .find(|(old, _)| m.trim().eq_ignore_ascii_case(old))
+                    .map_or(m, |(_, new)| (*new).to_string());
             }
-            "siri_threshold" => s.siri_threshold = as_f64(k, v)?,
             "siri_profile" => {
                 let p = as_str(k, v)?;
                 s.siri_profile = LEGACY_PROFILES
@@ -256,11 +252,11 @@ pub fn settings_from_table(t: &Table, strict: bool) -> Result<Settings> {
                     .map_or(p, |(_, new)| (*new).to_string());
             }
             "siri_depth_db" => s.siri_depth_db = Some(as_f64(k, v)?),
-            "siri_lookahead_s" => s.siri_lookahead_s = as_f64(k, v)?,
             "spk_buffer_ms" => s.spk_buffer_ms = as_f64(k, v)?,
             "debug_wav" => s.debug_wav = Some(as_str(k, v)?),
             "debug_max_s" => s.debug_max_s = as_f64(k, v)?,
             "stats_interval_s" => s.stats_interval_s = as_f64(k, v)?,
+            _ if LEGACY_KEYS.contains(&k) => {}
             _ if strict => bail!("unknown key: {k}"),
             _ => {}
         }
@@ -309,7 +305,7 @@ pub fn config_text(s: &Settings) -> String {
         vec!["# desk-echo-guard settings (written by the GUI; --config reads it too)".to_string()];
     let b = |v: bool| if v { "true" } else { "false" }.to_string();
     let opt = |v: &Option<String>| v.as_deref().map(toml_str);
-    let values: [(&str, Option<String>); 27] = [
+    let values: [(&str, Option<String>); 24] = [
         ("mic", opt(&s.mic)),
         ("speaker", opt(&s.speaker)),
         ("out", Some(toml_str(&s.out))),
@@ -328,21 +324,8 @@ pub fn config_text(s: &Settings) -> String {
         ("siri_guard", Some(b(s.siri_guard))),
         ("call_in", Some(toml_str(&s.call_in))),
         ("siri_mode", Some(toml_str(&s.siri_mode))),
-        (
-            "siri_model",
-            Some(format!(
-                "[{}]",
-                s.siri_model
-                    .iter()
-                    .map(|m| toml_str(m))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )),
-        ),
-        ("siri_threshold", Some(toml_f64(s.siri_threshold))),
         ("siri_profile", Some(toml_str(&s.siri_profile))),
         ("siri_depth_db", s.siri_depth_db.map(toml_f64)),
-        ("siri_lookahead_s", Some(toml_f64(s.siri_lookahead_s))),
         ("spk_buffer_ms", Some(toml_f64(s.spk_buffer_ms))),
         ("debug_wav", opt(&s.debug_wav)),
         ("debug_max_s", Some(toml_f64(s.debug_max_s))),
@@ -379,18 +362,18 @@ mod tests {
     }
 
     #[test]
-    fn config_file_tables_dashes_and_string_model() {
+    fn config_file_tables_and_dashes() {
         // tests/test_cli.py::test_config_file_and_cli_override (file part)
         let t = parse_config(
             "mic = \"USB\"\ndelay-ms = 40\n[siri]\nsiri_mode = \"always\"\n\
-             siri_model = \"x.onnx\"\n",
+             siri-profile = \"apple-deep\"\n",
         )
         .unwrap();
         let s = settings_from_table(&t, true).unwrap();
         assert_eq!(s.mic.as_deref(), Some("USB"));
         assert_eq!(s.delay_ms, 40.0);
         assert_eq!(s.siri_mode, "always");
-        assert_eq!(s.siri_model, vec!["x.onnx".to_string()]);
+        assert_eq!(s.siri_profile, "apple-deep");
         assert_eq!(s.out, "CABLE Input");
     }
 
@@ -406,12 +389,11 @@ mod tests {
     #[test]
     fn types_and_legacy_profile() {
         let t = parse_config(
-            "siri_model = [\"a.onnx\", \"b.onnx\"]\nsiri_profile = \"apple\"\n\
+            "siri_profile = \"apple\"\n\
              filter_ms = 200.0\nsiri_depth_db = -40\nmax_ppm = 500\n",
         )
         .unwrap();
         let s = settings_from_table(&t, true).unwrap();
-        assert_eq!(s.siri_model, vec!["a.onnx", "b.onnx"]);
         assert_eq!(s.siri_profile, "deep-wide");
         assert_eq!(s.filter_ms, 200);
         assert_eq!(s.siri_depth_db, Some(-40.0));
@@ -421,7 +403,7 @@ mod tests {
             "mic = 3",
             "filter_ms = -1",
             "blocksize = 1.5",
-            "siri_model = 2",
+            "siri_mode = 2",
         ] {
             let t = parse_config(bad).unwrap();
             assert!(settings_from_table(&t, false).is_err(), "{bad}");
@@ -435,10 +417,51 @@ mod tests {
 out = \"CABLE Input\"\nengine = \"auto\"\nnoise_suppression = true\nhigh_pass = true\n\
 agc = false\nfilter_ms = 300\ndelay_ms = 0.0\nmic_delay_ms = 0.0\noutput_gain_db = 0.0\n\
 ref_buffer_ms = 20.0\nout_buffer_ms = 40.0\nmax_ppm = 1000.0\nblocksize = 480\n\
+siri_guard = false\ncall_in = \"CABLE-A Output\"\nsiri_mode = \"always\"\n\
+siri_profile = \"deep-wide\"\nspk_buffer_ms = 40.0\ndebug_max_s = 600.0\n\
+stats_interval_s = 5.0\n";
+        assert_eq!(config_text(&Settings::default()), expected);
+    }
+
+    /// What 0.4.0 wrote for `Settings::default()` (every key, including the
+    /// settings of the removed `detect` mode).
+    const V040_DEFAULT_FILE: &str =
+        "# desk-echo-guard settings (written by the GUI; --config reads it too)\n\
+out = \"CABLE Input\"\nengine = \"auto\"\nnoise_suppression = true\nhigh_pass = true\n\
+agc = false\nfilter_ms = 300\ndelay_ms = 0.0\nmic_delay_ms = 0.0\noutput_gain_db = 0.0\n\
+ref_buffer_ms = 20.0\nout_buffer_ms = 40.0\nmax_ppm = 1000.0\nblocksize = 480\n\
 siri_guard = false\ncall_in = \"CABLE-A Output\"\nsiri_mode = \"always\"\nsiri_model = []\n\
 siri_threshold = 0.5\nsiri_profile = \"deep-wide\"\nsiri_lookahead_s = 1.0\n\
 spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
-        assert_eq!(config_text(&Settings::default()), expected);
+
+    #[test]
+    fn old_files_with_detect_mode_keys_still_load() {
+        let t = parse_config(V040_DEFAULT_FILE).unwrap();
+        for strict in [true, false] {
+            assert_eq!(
+                settings_from_table(&t, strict).unwrap(),
+                Settings::default()
+            );
+        }
+        // a 0.4.0 file using detect mode, with a model and odd values
+        let old = V040_DEFAULT_FILE
+            .replace("siri_mode = \"always\"", "siri_mode = \"detect\"")
+            .replace(
+                "siri_model = []",
+                "siri_model = [\"C:\\\\m\\\\hey_siri.onnx\"]",
+            )
+            .replace("siri_guard = false", "siri_guard = true");
+        let t = parse_config(&old).unwrap();
+        for strict in [true, false] {
+            let s = settings_from_table(&t, strict).unwrap();
+            assert_eq!(s.siri_mode, "sibilant");
+            assert!(s.siri_guard);
+            // saving drops the legacy keys
+            let text = config_text(&s);
+            assert!(LEGACY_KEYS.iter().all(|k| !text.contains(k)), "{text}");
+        }
+        let t = parse_config("siri_mode = \"Detect\"\nsiri_model = \"x.onnx\"\n").unwrap();
+        assert_eq!(settings_from_table(&t, true).unwrap().siri_mode, "sibilant");
     }
 
     #[test]
@@ -458,9 +481,8 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
             max_ppm: 1e20,
             blocksize: 960,
             siri_guard: true,
-            siri_mode: "detect".into(),
-            siri_model: vec!["C:\\models\\hey_siri.onnx".into(), "b.onnx".into()],
-            siri_threshold: 0.35,
+            siri_mode: "sibilant".into(),
+            siri_profile: "apple-deep".into(),
             siri_depth_db: Some(-45.0),
             debug_wav: Some("C:\\tmp\\wav".into()),
             ..Settings::default()
@@ -488,7 +510,6 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
         assert!(!s.siri_guard);
         assert_eq!(s.call_in, "CABLE-A Output");
         assert_eq!(s.siri_profile, "deep-wide");
-        assert!(s.siri_model.is_empty());
     }
 
     #[test]

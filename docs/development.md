@@ -25,7 +25,6 @@ cargo clippy --workspace --all-targets --release -- -D warnings
 | `crates/core/tests/pipeline_leaks.rs` | 開始 / 停止 20 次不留執行緒、記憶體不增加（只在 Linux） |
 | `crates/core/tests/selftest.rs` | 自我檢測 |
 | `crates/app/tests/cli_sim.rs` | 命令列、離線 `--sim-*` |
-| `crates/wakeword/tests/reference.rs` | 喚醒詞偵測分數和 Python openWakeWord 的參考輸出比對（要下載模型；離線時跳過，或設 `ECHOGUARD_OWW_OFFLINE` 跳過） |
 
 ### Windows
 
@@ -89,7 +88,3 @@ cargo run --release -p desk-echo-guard -- --screenshot docs/images
 ## 圖示
 
 修改 `tools/make_icon.py` 後執行它（需要 Python 和 Pillow），會重新產生 `assets/icon.ico` 和 `assets/icon.png`。`icon.ico` 會在編譯時嵌進 exe。
-
-## Hey Siri 喚醒詞模型
-
-訓練 `detect` 模式用的模型是另外的 Python 流程，見 [tools/train_hey_siri](../tools/train_hey_siri/README.md)。

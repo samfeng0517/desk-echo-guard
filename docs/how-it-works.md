@@ -12,7 +12,7 @@
                        └──────────────────────────────┘
 
  （選用：Hey Siri 防護）
- Discord/LINE 輸出 ──► CABLE-A Input ══► CABLE-A Output ──► 延遲 + 偵測 + 陷波 ──► 真正的喇叭
+ Discord/LINE 輸出 ──► CABLE-A Input ══► CABLE-A Output ──► （預看 +）偵測 + 陷波 ──► 真正的喇叭
 ```
 
 **回聲參考**
@@ -51,7 +51,7 @@
 |---|---|
 | 你的聲音（麥克風 → 對方） | 約 60–70 ms：輸出緩衝 40 ms + 10 ms 音框 + AEC3 約 9 ms |
 | 對方聲音，Siri 防護 `always` | 約多 12.5 ms（濾波器群延遲） |
-| 對方聲音，Siri 防護 `detect` / `sibilant` | 約多 1 秒（要等偵測器聽完整句） |
+| 對方聲音，Siri 防護 `sibilant` | 約多 0.07 秒（濾波器 12.5 ms + 預看 60 ms：偵測到「s」音時要回頭從它開頭削起） |
 
 ## 音效裝置
 
@@ -62,7 +62,7 @@
 
 ## 程式碼結構
 
-Rust workspace，`crates/` 底下六個 crate（細節見 [DESIGN.md](../DESIGN.md)）：
+Rust workspace，`crates/` 底下五個 crate（細節見 [DESIGN.md](../DESIGN.md)）：
 
 ```
 crates/
@@ -70,13 +70,12 @@ crates/
               串流整數倍重取樣（48k ↔ 16k）、GCC-PHAT 延遲估計（「量測延遲」）、
               線性相位陷波與 SiriGuard、NLMS、合成測試訊號與 ERLE / STOI 等量測
   aec/        回聲消除引擎（webrtc / speex / nlms / off）+ 延遲線（AecProcessor）
-  wakeword/   openWakeWord 喚醒詞偵測（detect 模式），內建小型純 Rust ONNX 推論
   audio/      裝置介面、WASAPI 實作（Windows）、模擬裝置（測試用，可設各裝置的時脈誤差）
   core/       設定檔、多執行緒即時管線、量測延遲、VB-Cable 改名 / 停用、
               開機自動啟動、自我檢測（--self-test）
   app/        DeskEchoGuard.exe：Slint 圖形介面（ui/、規格見 UI.md）、系統匣、命令列
 assets/       圖示（tools/make_icon.py 產生）
-tools/        圖示產生器、Hey Siri 模型訓練說明（Python）
+tools/        圖示產生器（Python）
 ```
 
 開發、測試、發佈見 [開發說明](development.md)。

@@ -16,9 +16,9 @@
 
 | 設定 | 削掉的頻帶 | 深度 | 聽感 |
 |---|---|---|---|
-| `deep-wide`（預設） | 2.8–6.5 kHz 整段 | 70 dB | 稍微變暗 |
+| `deep-wide`（預設） | 2.8–6.5 kHz 整段 | 70 dB | 變暗；子音也在這段，實際通話有人覺得對方講話不好聽懂（那時改 `apple-deep`） |
 | `apple-deep` | 3/4/5/6 kHz，各寬 400 Hz | 70 dB | 幾乎聽不出來 |
-| `apple-wide` | 2.8–6.5 kHz | 50 dB | 稍微變暗 |
+| `apple-wide` | 2.8–6.5 kHz | 50 dB | 變暗，子音較不清楚 |
 | `formant` | 1–3 kHz + 上述四個窄帶 | 70 dB | 明顯變悶，但仍聽得懂 |
 
 **模式**
@@ -26,14 +26,16 @@
 | 模式 | 什麼時候處理 | 通話多出的延遲 | 需要 |
 |---|---|---|---|
 | `always`（預設） | 一律處理 | 約 12.5 ms | — |
-| `sibilant` | 偵測到 /s/ 音（Siri 的開頭）後處理 0.45 s，其他含 s 的字也會被處理到 | 約 1 秒 | — |
-| `detect` | 喚醒詞模型偵測到「Hey Siri」才處理那一句 | 約 1 秒 | 自己訓練的模型，見 [tools/train_hey_siri](../tools/train_hey_siri/README.md) |
+| `sibilant` | 偵測到 /s/ 音（Siri 的開頭）後處理 0.45 s，其他含 s 的字也會被處理到 | 約 72.5 ms（v0.4.1 前約 1 秒） | — |
+
+v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到「Hey Siri」才處理那一句）：它需要自己訓練「Hey Siri」模型，作者沒有訓練出可用的模型，又讓對方聲音晚約 1 秒，不值得維護。舊設定檔的 `siri_mode = "detect"` 會自動改成 `sibilant`，`siri_model` / `siri_threshold` / `siri_lookahead_s` 會被忽略。下面的研究數據仍保留當時的結果。
 
 **建議**
 
 1. 用預設的 `deep-wide` + `always`。它涵蓋 `apple-deep` 的四個頻帶，再把中間的空隙也一起削掉。可以拿另一台裝置播「Hey Siri」影片，確認 HomePod / iPhone 不會被叫醒。
    - 舊版的 `apple`（同 `apple-deep` 的頻帶、只削 30 dB）實機擋不住，已經移除；設定檔裡還寫著 `apple` 的話，會自動改用 `deep-wide`。
-2. 還會被叫醒的話，改用 `formant`。`formant` + `always` 會讓整通電話都變悶，所以最好搭配 `detect` 模式：只有約 1 秒的喚醒詞變悶，其他時間不受影響。代價是要先訓練模型，對方聲音也會延遲約 1 秒。
+   - `deep-wide` 削掉的 2.8–6.5 kHz 也是子音所在的頻段；對方講話變得不好聽懂時，改用 `apple-deep`。
+2. 還會被叫醒的話，改用 `formant`。`formant` + `always` 會讓整通電話都變悶，所以最好搭配 `sibilant` 模式：只有「s」音後約半秒變悶，其他時間不受影響，延遲也只多約 0.06 秒。
 
 為什麼這樣建議，見下方[實測效果](#實測效果)。
 
@@ -75,17 +77,19 @@
 
 ## 實作方式
 
-程式碼在 `crates/dsp/src/notch.rs`（陷波濾波器）、`crates/dsp/src/guard.rs`（SiriGuard、`sibilant` 偵測、時間控制）和 `crates/wakeword`（`detect` 模式的 openWakeWord 偵測器）。
+程式碼在 `crates/dsp/src/notch.rs`（陷波濾波器）和 `crates/dsp/src/guard.rs`（SiriGuard、`sibilant` 偵測、時間控制）。v0.4.0 的 `crates/wakeword`（`detect` 模式的 openWakeWord 偵測器）已在 v0.4.1 移除。
 
 **陷波濾波器**
 
 - 線性相位 FIR 多頻帶阻帶（1201 taps，群延遲 12.5 ms）。
 - 處理後的聲音和延遲後的原音逐樣本對齊，所以能用 `out = dry − m(t)·(dry − wet)` 平滑切換（預設 15 ms），不會有梳狀濾波的怪聲。
 
-**偵測模式的時間控制**
+**`sibilant` 模式的時間控制**
 
-- 通話聲音延遲約 1 秒（`lookahead`），偵測器跑在**還沒延遲**的輸入上。
-- 偵測器要等整句講完才會觸發；那時那一句還在緩衝區裡，所以能把整句處理完再播出。
+- 偵測器跑在**還沒延遲**的輸入上，通話聲音則延遲一小段（`lookahead`）。
+- 偵測器每 10 ms 一框；/s/ 開頭的那一框結束時觸發，標記的區段是「該框開頭往前 30 ms」到「往後 0.45 s」。
+- 所以 `lookahead` 只要涵蓋：框長 10 ms + 往前的 30 ms + 淡入 15 ms + 5 ms 餘裕 = 60 ms（由偵測器參數算出，和音訊區塊大小無關）。加上濾波器 12.5 ms，總延遲約 72.5 ms。這樣 /s/ 一開頭就已經被削，不會漏掉開頭。
+- 舊的 `detect` 模式要等整句講完才觸發，所以需要約 1 秒的 `lookahead`。
 
 ## 實測效果
 
@@ -107,7 +111,7 @@
 - hey_mycroft / 女聲在原始聲音就沒有觸發，這一列不能拿來比較。
 - 「Hey Siri」合成語音處理後的 STOI：`deep-wide` 0.98–0.99、`apple-deep` 0.98–0.99、`formant` 0.93–0.94。
 
-**`detect` 模式端到端測試**：用 hey_jarvis 當替身，喚醒詞放在句子中間。
+**`detect` 模式端到端測試**（Python 版；此模式已在 v0.4.1 移除）：用 hey_jarvis 當替身，喚醒詞放在句子中間。
 
 - 偵測器正確觸發，只處理了那一段（約 1.0 s），其他部分和原音完全相同。
 - 處理後的聲音再交給另一個偵測器：舊版 30 dB 的 `apple` 分數仍是 1.00；`formant` 降到 0.00–0.04。
@@ -124,6 +128,6 @@ STOI 只看約 4.3 kHz 以下的頻段，所以對高頻陷波不太敏感。合
 ## 限制
 
 - Apple 的方法沒有公開。實機上 30 dB 的淺陷波擋不住 HomePod / iPhone；`deep-wide` 在實機上的效果**還沒實測**。
-- `detect` 模式要自己訓練模型，這部分**沒有實際訓練和測試過**。
-- `sibilant` 會處理到其他含 s 的字。
-- `detect` / `sibilant` 會讓對方的聲音晚約 1 秒才聽到，對話時感覺得出來；`always` 沒有這個延遲。
+- `sibilant` 會處理到其他含 s 的字（每次約半秒）。
+- `sibilant` 只在 /s/ 之後削；如果 Siri 的偵測器在 /s/ 之前（「Hey」）就已經認出來，這個模式擋不到。
+- `sibilant` 的延遲約 72.5 ms（`always` 約 12.5 ms），對話時感覺不出來。

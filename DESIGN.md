@@ -22,12 +22,11 @@ User documentation is in [`docs/`](docs/); the GUI spec is
 |---|---|---|
 | `echoguard-dsp` | `buffers.py` `resample.py` `delay.py` `siri_guard.py` (DSP parts) `aec.py` (NLMS) `signals.py` `metrics.py` | pure Rust, no OS deps, everything testable on Linux |
 | `echoguard-aec` | `aec.py` | `EchoCanceller` trait, engines webrtc / speex / nlms / off, `AecProcessor` |
-| `echoguard-wakeword` | `siri_guard.OpenWakeWordDetector` | openWakeWord pipeline on a small built-in pure-Rust ONNX interpreter (float32 DNN models; no ONNX Runtime) |
 | `echoguard-audio` | `io_backend.py` `sim.py` | device traits, WASAPI backend (Windows), simulated backend |
 | `echoguard-core` | `app.py` `cli.py` (settings) `vcable.py` `winutil.py` `selftest.py` | settings / TOML, real-time pipeline, calibration, VB-Cable, autostart, self-test |
 | `desk-echo-guard` (crates/app) | `gui.py` `tray.py` `cli.py` | the exe: GUI (Slint, Fluent style), tray, CLI |
 
-Dependency direction: `dsp` <- `aec`, `wakeword`; `audio` (independent);
+Dependency direction: `dsp` <- `aec`; `audio` (independent);
 `core` <- all of the above; `app` <- `core`.
 
 Rules for every crate:
@@ -91,17 +90,19 @@ pub struct NotchBank;  new(cfg); process(&mut self, x: &[f32], out: &mut [f32]);
 // guard.rs (siri_guard.SiriGuard, detectors)
 pub trait Detector: Send {   // regions in absolute input-sample indices
     fn feed(&mut self, x: &[f32], start: i64) -> Vec<(i64, i64)>;
+    fn report_delay(&self) -> usize;  // worst case: region start .. start of the reporting block
 }
-pub struct OracleDetector; pub struct SibilantDetector;   // both impl Detector
-pub enum GuardMode { Always, Sibilant, Detect, Off }       // FromStr / as_str
-pub struct GuardConfig { pub mode: GuardMode, pub lookahead_s: f64, pub ramp_ms: f64,
-                         pub notch: NotchConfig }
+pub struct SibilantDetector;                    // impl Detector; report_delay = FRAME - 1 + pre
+pub enum GuardMode { Always, Sibilant, Off }    // FromStr / as_str ("detect" removed in 0.4.1)
+pub struct GuardConfig { pub mode: GuardMode, pub ramp_ms: f64, pub notch: NotchConfig }
 pub struct SiriGuard;
 impl SiriGuard {
     pub fn new(cfg: GuardConfig, detector: Option<Box<dyn Detector>>) -> anyhow::Result<Self>;
     pub fn process(&mut self, x: &[f32], out: &mut [f32]);
     pub fn process_signal(&mut self, x: &[f32], block: usize) -> Vec<f32>; // latency removed
     pub fn latency(&self) -> usize; pub fn detections(&self) -> u64;
+    pub fn clamped(&self) -> u64;     // regions whose start was already played (0 normally)
+    pub fn required_lookahead(det: &dyn Detector, ramp: usize) -> usize; // report_delay + ramp + 5 ms
 }
 
 // nlms.rs (aec.NlmsAec.process_lowrate): 16 kHz, 160-sample blocks
@@ -150,19 +151,6 @@ impl AecProcessor {
   suppression) as in the `pyaec` wheel; vendored C sources built with `cc`.
   Feature `speex` (default on).
 
-### echoguard-wakeword
-
-Inference runs on the crate's own ONNX interpreter (`onnx.rs` parser, `nn.rs` ops, `gemm.rs` AVX2/portable kernel): ~0.3 MB instead of ONNX Runtime's ~24 MB + DirectML / VC++ DLLs.  Unsupported ops (e.g. LSTM heads) fail at load time with the op name.
-
-```rust
-pub struct OpenWakeWordDetector;   // impl echoguard_dsp::Detector
-impl OpenWakeWordDetector {
-    pub fn new(model_paths: &[std::path::PathBuf], threshold: f32, pre_s: f64,
-               post_s: f64, refractory_s: f64) -> anyhow::Result<Self>;
-}
-pub fn feature_model_paths(model_paths: &[PathBuf]) -> anyhow::Result<(PathBuf, PathBuf)>; // melspec, embedding (download if missing)
-```
-
 ### echoguard-audio
 
 ```rust
@@ -198,10 +186,11 @@ pub struct Settings { pub mic: Option<String>, pub speaker: Option<String>, pub 
     pub engine: String, pub noise_suppression: bool, pub high_pass: bool, pub agc: bool,
     pub filter_ms: u32, pub delay_ms: f64, pub mic_delay_ms: f64, pub output_gain_db: f64,
     pub ref_buffer_ms: f64, pub out_buffer_ms: f64, pub max_ppm: f64, pub blocksize: usize,
-    pub siri_guard: bool, pub call_in: String, pub siri_mode: String, pub siri_model: Vec<String>,
-    pub siri_threshold: f64, pub siri_profile: String, pub siri_depth_db: Option<f64>,
-    pub siri_lookahead_s: f64, pub spk_buffer_ms: f64, pub debug_wav: Option<String>,
+    pub siri_guard: bool, pub call_in: String, pub siri_mode: String,
+    pub siri_profile: String, pub siri_depth_db: Option<f64>,
+    pub spk_buffer_ms: f64, pub debug_wav: Option<String>,
     pub debug_max_s: f64, pub stats_interval_s: f64 }
+pub const LEGACY_KEYS: &[&str];  // siri_model, siri_threshold, siri_lookahead_s: accepted + ignored
 pub fn default_config_path() -> PathBuf;                 // %APPDATA%\desk-echo-guard\echoguard.toml
 pub fn load_config(path) -> Result<toml::Table>;          // flattens [tables], '-' -> '_'
 pub fn settings_from_table(t, strict: bool) -> Result<Settings>;  // strict = unknown key is an error (CLI)
@@ -225,7 +214,7 @@ impl EchoGuard {
 }
 pub fn run_blocking(s: &Settings, backend, duration_s: Option<f64>, log) -> Result<()>; // CLI loop + Ctrl+C
 pub fn calibrate(s: &Settings, backend, seconds: f64, level_db: f64, log) -> Result<(f64, f64)>;
-pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // detect -> wakeword, sibilant, always
+pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // sibilant, always
 
 // vcable.rs (vcable.py) – pure role logic + Windows endpoint ops
 pub struct Role { pub key: &'static str, pub kind: DeviceKind, pub original: &'static str, pub renamed: &'static str }
@@ -262,10 +251,17 @@ pub fn elevated_main(args: &[String]) -> i32;
   damped PI controller, anti-windup only while not underrunning, hard resync,
   re-prime after a long producer stall, underrun keeps the read position
   advancing (see the docstring in `buffers.py`).
-* SiriGuard always mode = notch only, no lookahead; detect / sibilant =
-  1 s lookahead, cross-fade mask with raised-cosine ramps, regions clamped
-  to what is still in the buffer.
+* SiriGuard always mode = notch only, no lookahead; sibilant = lookahead
+  derived from the detector (`report_delay` 479 + 1440 samples + 15 ms ramp
+  + 5 ms margin = 60 ms; total latency 72.5 ms, independent of the block
+  size), cross-fade mask with raised-cosine ramps, regions clamped to what
+  is still in the buffer (counted by `clamped()`, 0 in normal operation).
+  The wake-word `detect` mode (1 s lookahead, `echoguard-wakeword`) was
+  removed in 0.4.1.
 * Pipeline levels: exponential average (a = 0.05) of per-frame dB, start at
   -120; mic clipping warning above 0.9 peak.
 * `vcable.resolve`: configured "CABLE Input" must keep working after rename.
-* Settings file: missing keys take defaults; `siri_model` may be a string.
+* Settings file: missing keys take defaults; the 0.4.0 keys `siri_model`,
+  `siri_threshold`, `siri_lookahead_s` are accepted and ignored (also in
+  strict mode) and no longer written; `siri_mode = "detect"` maps to
+  `sibilant`, like the legacy `apple` profile maps to `deep-wide`.

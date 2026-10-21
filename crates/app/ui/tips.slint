@@ -41,11 +41,8 @@ export global Tips {
     out property <string> siri-docs: "在瀏覽器開啟 Hey Siri 防誤觸的詳細說明與實測結果。";
     out property <string> siri-mode: "什麼時候處理對方的聲音。不確定就用「一直處理」。";
     out property <string> mode-always: "推薦。一律處理對方的聲音，不會多出明顯的延遲。";
-    out property <string> mode-sibilant: "只在需要時處理，但對方的聲音會晚約 1 秒；含「s」的其他字也會被處理到。";
-    out property <string> mode-detect: "只在需要時處理，但對方的聲音會晚約 1 秒；需要自己準備喚醒詞模型檔（.onnx）。";
-    out property <string> siri-model: "「偵測到 Hey Siri 才處理」要用的喚醒詞模型檔（.onnx）。";
-    out property <string> siri-threshold: "數字越大越不容易觸發。常被誤觸就調大，該處理時沒處理就調小。建議 0.5。";
-    out property <string> siri-profile: "先用「標準」。還是會被叫醒就改「加強」（聲音較悶，但最有效）。";
+    out property <string> mode-sibilant: "聽到「s」這類嘶聲才處理約半秒，平常聲音完全不動。只多約 0.06 秒延遲，聽不出來；缺點是其他有「s」音的字（例如「四、謝謝」）也會被短暫削掉高音。";
+    out property <string> siri-profile: "「標準」在 Siri 最在意的高音擋得最徹底，但對方的子音會比較不清楚；聽不清楚就改「輕微」。還是會被叫醒就改「加強」（聲音較悶，但最有效）。";
     out property <string> copy-siri-name: "複製「Siri防護喇叭」這個名稱，貼到通話軟體的喇叭設定裡找。";
 
     // ---- advanced
@@ -78,6 +75,6 @@ export global Tips {
     out property <string> diag-underruns: "聲音來不及送到而補靜音的次數。一直增加代表電腦太忙或緩衝太小。";
     out property <string> diag-cpu: "處理每 10 ms 聲音花的時間。遠小於 10 ms 才正常。";
     out property <string> diag-engine: "目前實際使用的回聲消除引擎。";
-    out property <string> diag-siri-latency: "防誤觸讓對方的聲音晚多少才播出來。「一直處理」約 12.5 ms，其他模式約 1 秒。";
+    out property <string> diag-siri-latency: "防誤觸讓對方的聲音晚多少才播出來。「一直處理」約 12.5 ms，「只在「s」音時處理」約 70 ms。";
     out property <string> diag-siri: "Hey Siri 防誤觸處理過幾次對方的聲音。";
 }

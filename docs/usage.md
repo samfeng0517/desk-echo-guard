@@ -15,7 +15,7 @@
 |---|---|
 | **首頁** | **開始 / 停止**、「在通話軟體這樣設定」（要選哪個裝置，可複製）、三條音量條（你的麥克風 / 喇叭播放中 / 送給對方）、出問題時的提示 |
 | **裝置** | 麥克風、喇叭（預設用 Windows 的預設裝置）、VB-Cable 狀態、**整理 VB-Cable…**（[改名與停用](faq.md#vb-cable-改名後叫什麼)）、手動指定虛擬音效線、還原 VB-Cable |
-| **Hey Siri 防誤觸** | 啟用、模式、強度、`detect` 模式的模型檔與靈敏度，見 [Hey Siri 防誤觸](siri-guard.md) |
+| **Hey Siri 防誤觸** | 啟用、模式（一直處理 / 只在「s」音時處理）、強度，見 [Hey Siri 防誤觸](siri-guard.md) |
 | **進階** | 回聲消除引擎、降噪 / 高通 / 自動音量、延遲（量測延遲、喇叭延遲、麥克風延遲、輸出音量）、登入時自動啟動、診斷（技術數字、除錯錄音資料夾、執行記錄、複製記錄、開啟設定檔資料夾）、關於 |
 
 ![首頁](images/home-light.png)
@@ -70,10 +70,8 @@ DeskEchoGuard.exe --help
 | `--filter-ms` | Speex / NLMS 濾波器長度（預設 300） |
 | `--ref-buffer-ms` / `--out-buffer-ms` | 參考 / 輸出緩衝（預設 20 / 40 ms） |
 | `--siri-guard` | 開 Hey Siri 防誤觸 |
-| `--siri-mode` | `always`（預設）/ `sibilant` / `detect` |
+| `--siri-mode` | `always`（預設）/ `sibilant`（只在「s」音時處理，延遲約 0.07 秒） |
 | `--siri-profile` | `deep-wide`（預設）/ `apple-deep` / `apple-wide` / `formant` |
-| `--siri-model` | `detect` 模式用的喚醒詞模型（`.onnx`），可以給多個 |
-| `--siri-threshold` | `detect` 模式的門檻（預設 0.5，越高越不敏感） |
 | `--debug-wav DIR` | 結束時把 mic / ref / out / call 錄音存到資料夾（最多 10 分鐘） |
 | `--duration-s N` | N 秒後自動停止 |
 

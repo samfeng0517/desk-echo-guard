@@ -12,6 +12,7 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 > - v0.4.0 起是用 Rust 全新改寫的版本：功能和設定檔都跟舊版一樣，但更省記憶體與 CPU、單一 exe 秒開。它通過了所有自動測試與 Windows 自我檢測，但還沒在實機上長時間使用過；遇到問題可以先改用 [v0.3.1](https://github.com/samfeng0517/desk-echo-guard/releases/tag/v0.3.1)（Python 版，設定檔共用，可以直接換回去）並開 issue 回報。
 > - 舊版（Python，v0.3.1）已在 Windows 實機（桌上型喇叭 + 桌上型麥克風，Discord 通話）上使用，回聲消除有效；新版用的是同一套 WebRTC 回聲消除。
 > - Hey Siri 防誤觸預設用 `deep-wide`（2.8–6.5 kHz 整段深陷波）；舊版較淺的 `apple` 實機擋不住，已移除。Apple 的做法沒有官方公開，詳見 [Hey Siri 防誤觸](docs/siri-guard.md)。
+> - v0.4.1：Hey Siri 防誤觸移除了需要自己訓練模型的 `detect`（偵測到「Hey Siri」才處理）模式，舊設定檔會自動改用 `sibilant`；`sibilant`（只在「s」音時處理）的延遲從約 1 秒降到約 0.07 秒。
 
 ## 下載
 
@@ -76,7 +77,6 @@ cargo test --workspace --release
 | [Slint](https://slint.dev/) | 圖形介面 | [Slint Royalty-free Desktop, Mobile, and Web Applications License](https://github.com/slint-ui/slint/blob/master/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md)。本程式介面以 Slint 製作（Made with [Slint](https://slint.dev/)），「進階 → 關於」中附有 Slint 標示。 |
 | [WebRTC](https://webrtc.org/)（經由 LiveKit `libwebrtc`） | 回聲消除、降噪 | BSD 3-Clause（WebRTC）；LiveKit Rust SDK 為 Apache-2.0 |
 | [SpeexDSP](https://www.speex.org/) | 回聲消除（Speex 引擎） | BSD 3-Clause（Xiph.Org） |
-| [openWakeWord](https://github.com/dscripka/openWakeWord) | 喚醒詞偵測流程與特徵模型 | Apache-2.0（程式碼） |
 | [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) | 介面圖示 | MIT（[授權全文](crates/app/ui/icons/LICENSE-fluentui-system-icons.txt)） |
 
 [VB-Cable](https://vb-audio.com/Cable/) 是 VB-Audio 的軟體（VB-CABLE 免費、VB-CABLE A+B 為捐款軟體），需要另外安裝，不包含在本專案內。

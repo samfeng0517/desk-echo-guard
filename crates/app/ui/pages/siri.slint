@@ -1,4 +1,4 @@
-import { Button, ComboBox, Switch, Slider } from "std-widgets.slint";
+import { ComboBox, Switch } from "std-widgets.slint";
 import { Theme, Icons } from "../theme.slint";
 import { Tips } from "../tips.slint";
 import { Tip, Card, SettingsCard, RadioOption, LinkText, FluentIcon, Caption, InfoBar } from "../controls.slint";
@@ -8,10 +8,10 @@ import { Page, Section } from "page.slint";
 export global SiriText {
     out property <[string]> profiles: ["標準（推薦）", "輕微", "較淺", "加強"];
     out property <[string]> profile-desc: [
-        "削掉 Siri 最容易聽到的整段高音。聲音稍微變暗，但很自然。",
-        "仿照 Apple 發表會，只削幾個很窄的頻段。幾乎聽不出來，但擋得比較少。",
-        "範圍和「標準」一樣，削得比較淺。聲音稍微變暗。",
-        "再多削一段中音，最有效，但對方聲音明顯變悶。建議搭配「偵測到 Hey Siri 才處理」。",
+        "削掉 Siri 最在意的整段高音（2.8–6.5 kHz），這段擋得最徹底；但子音也在這段，對方說話會比較不清楚。聽不清楚時改用「輕微」。",
+        "仿照 Apple 發表會，只削幾個很窄的頻段。幾乎聽不出來，說話最清楚，但擋得比較少。",
+        "範圍和「標準」一樣，削得比較淺。子音一樣會比較不清楚。",
+        "再多削一段中音，最有效，但對方聲音明顯變悶。建議搭配「只在「s」音時處理」。",
     ];
 }
 
@@ -145,100 +145,13 @@ export component SiriPage inherits Page {
             }
             RadioOption {
                 title: "只在「s」音時處理";
-                description: "只在聽到 /s/ 音時處理，對方的聲音會晚約 1 秒。";
+                description: "延遲只多約 0.06 秒（聽不出來）；其他有 /s/ 音的字也會被短暫處理。";
                 tip: Tips.mode-sibilant;
                 enabled: Cfg.siri-guard;
                 selected: Cfg.siri-mode-index == 1;
                 clicked => {
                     Cfg.siri-mode-index = 1;
                     Cfg.changed();
-                }
-            }
-            RadioOption {
-                title: "偵測到「Hey Siri」才處理";
-                description: "需要喚醒詞模型檔，對方的聲音會晚約 1 秒。";
-                tip: Tips.mode-detect;
-                enabled: Cfg.siri-guard;
-                selected: Cfg.siri-mode-index == 2;
-                clicked => {
-                    Cfg.siri-mode-index = 2;
-                    Cfg.changed();
-                }
-            }
-        }
-        if Cfg.siri-mode-index == 2: VerticalLayout {
-            padding-left: 68px;
-            spacing: 12px;
-            Tip {
-                tip: Tips.siri-model;
-                HorizontalLayout {
-                    spacing: 12px;
-                    Text {
-                        text: "模型檔";
-                        font-size: Theme.body;
-                        color: Theme.text;
-                        vertical-alignment: center;
-                        width: 64px;
-                    }
-                    Text {
-                        horizontal-stretch: 1;
-                        text: Cfg.siri-model == "" ? "（還沒選擇）" : Cfg.siri-model;
-                        font-size: Theme.body;
-                        color: Cfg.siri-model == "" ? Theme.text-tertiary : Theme.text;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-                    Button {
-                        text: "選擇…";
-                        icon: Icons.document;
-                        colorize-icon: true;
-                        enabled: Cfg.siri-guard;
-                        clicked => {
-                            AppState.pick-model();
-                        }
-                    }
-                }
-            }
-            Tip {
-                tip: Tips.siri-threshold;
-                HorizontalLayout {
-                    spacing: 12px;
-                    Text {
-                        text: "靈敏度";
-                        font-size: Theme.body;
-                        color: Theme.text;
-                        vertical-alignment: center;
-                        width: 64px;
-                    }
-                    Caption {
-                        text: "較敏感";
-                        vertical-alignment: center;
-                        horizontal-stretch: 0;
-                    }
-                    Slider {
-                        horizontal-stretch: 1;
-                        minimum: 0.05;
-                        maximum: 0.95;
-                        step: 0.05;
-                        enabled: Cfg.siri-guard;
-                        value <=> Cfg.siri-threshold;
-                        changed(v) => {
-                            Cfg.changed();
-                        }
-                    }
-                    Caption {
-                        text: "較不敏感";
-                        vertical-alignment: center;
-                        horizontal-stretch: 0;
-                    }
-                    Text {
-                        text: round(Cfg.siri-threshold * 100) / 100;
-                        width: 36px;
-                        font-size: Theme.body;
-                        color: Theme.text-secondary;
-                        vertical-alignment: center;
-                        horizontal-alignment: right;
-                    }
                 }
             }
         }

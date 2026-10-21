@@ -15,10 +15,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
-use clap::{ArgAction, Parser};
+use clap::Parser;
 use echoguard_aec::{available_engines, make_engine, AecProcessor, EngineOptions};
 use echoguard_audio::DeviceKind;
-use echoguard_core::settings::FIELDS;
+use echoguard_core::settings::{FIELDS, LEGACY_KEYS};
 use echoguard_core::vcable::{self, CableAction};
 use echoguard_core::{load_config, settings_from_table, LogSink, Settings};
 use echoguard_dsp::FRAME;
@@ -131,13 +131,8 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub siri_guard: bool,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["detect", "sibilant", "always"])]
+          value_parser = ["sibilant", "always"])]
     pub siri_mode: Option<String>,
-    /// openWakeWord model (.onnx/.tflite) for --siri-mode detect
-    #[arg(long, help_heading = "Hey Siri anti-trigger", action = ArgAction::Append)]
-    pub siri_model: Vec<String>,
-    #[arg(long, help_heading = "Hey Siri anti-trigger")]
-    pub siri_threshold: Option<f64>,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
           value_parser = ["deep-wide", "apple-deep", "apple-wide", "formant"])]
     pub siri_profile: Option<String>,
@@ -147,8 +142,6 @@ pub struct Cli {
         allow_negative_numbers = true
     )]
     pub siri_depth_db: Option<f64>,
-    #[arg(long, help_heading = "Hey Siri anti-trigger")]
-    pub siri_lookahead_s: Option<f64>,
 
     // ---- debug / offline
     /// directory to dump mic/ref/out wavs on exit
@@ -244,7 +237,10 @@ pub fn make_settings(cli: &Cli) -> Result<Settings> {
     let mut s = match &cli.config {
         Some(path) => {
             let t = load_config(path)?;
-            if let Some(k) = t.keys().find(|k| !FIELDS.contains(&k.as_str())) {
+            if let Some(k) = t
+                .keys()
+                .find(|k| !FIELDS.contains(&k.as_str()) && !LEGACY_KEYS.contains(&k.as_str()))
+            {
                 bail!("unknown key in {}: {k}", path.display());
             }
             settings_from_table(&t, true).with_context(|| format!("{}", path.display()))?
@@ -275,19 +271,10 @@ pub fn make_settings(cli: &Cli) -> Result<Settings> {
         max_ppm,
         blocksize
     );
-    set!(
-        siri_mode,
-        siri_threshold,
-        siri_profile,
-        siri_lookahead_s,
-        stats_interval_s
-    );
+    set!(siri_mode, siri_profile, stats_interval_s);
     set_opt!(mic, speaker, siri_depth_db, debug_wav);
     if cli.siri_guard {
         s.siri_guard = true;
-    }
-    if !cli.siri_model.is_empty() {
-        s.siri_model = cli.siri_model.clone();
     }
     Ok(s)
 }
@@ -444,8 +431,7 @@ mod tests {
         let cfg = tmp("c.toml");
         std::fs::write(
             &cfg,
-            "mic = \"USB\"\ndelay-ms = 40\n[siri]\nsiri_mode = \"always\"\n\
-             siri_model = \"x.onnx\"\n",
+            "mic = \"USB\"\ndelay-ms = 40\n[siri]\nsiri_mode = \"always\"\n",
         )
         .unwrap();
         let cli = parse(&["--config", cfg.to_str().unwrap(), "--delay-ms", "12"]);
@@ -453,8 +439,23 @@ mod tests {
         assert_eq!(st.mic.as_deref(), Some("USB"));
         assert_eq!(st.delay_ms, 12.0);
         assert_eq!(st.siri_mode, "always");
-        assert_eq!(st.siri_model, vec!["x.onnx".to_string()]);
         assert_eq!(st.out, "CABLE Input");
+    }
+
+    #[test]
+    fn old_config_with_detect_mode_keys_loads() {
+        // written by 0.4.0 (detect mode, removed in 0.4.1)
+        let cfg = tmp("old.toml");
+        std::fs::write(
+            &cfg,
+            "siri_guard = true\nsiri_mode = \"detect\"\nsiri_model = [\"x.onnx\"]\n\
+             siri_threshold = 0.5\nsiri_profile = \"apple-deep\"\nsiri_lookahead_s = 1.0\n",
+        )
+        .unwrap();
+        let st = make_settings(&parse(&["--config", cfg.to_str().unwrap()])).unwrap();
+        assert!(st.siri_guard);
+        assert_eq!(st.siri_mode, "sibilant");
+        assert_eq!(st.siri_profile, "apple-deep");
     }
 
     #[test]
@@ -511,18 +512,10 @@ mod tests {
             "--siri-guard",
             "--siri-mode",
             "sibilant",
-            "--siri-model",
-            "a.onnx",
-            "--siri-model",
-            "b.onnx",
-            "--siri-threshold",
-            "0.7",
             "--siri-profile",
             "formant",
             "--siri-depth-db",
             "-30",
-            "--siri-lookahead-s",
-            "0.5",
             "--debug-wav",
             "dbg",
             "--stats-interval-s",
@@ -548,11 +541,8 @@ mod tests {
             blocksize: 960,
             siri_guard: true,
             siri_mode: "sibilant".into(),
-            siri_model: vec!["a.onnx".into(), "b.onnx".into()],
-            siri_threshold: 0.7,
             siri_profile: "formant".into(),
             siri_depth_db: Some(-30.0),
-            siri_lookahead_s: 0.5,
             debug_wav: Some("dbg".into()),
             stats_interval_s: 0.0,
             ..Default::default()
@@ -575,6 +565,10 @@ mod tests {
         for args in [
             &["--engine", "foo"][..],
             &["--siri-mode", "never"],
+            &["--siri-mode", "detect"],
+            &["--siri-model", "a.onnx"],
+            &["--siri-threshold", "0.5"],
+            &["--siri-lookahead-s", "1"],
             &["--siri-profile", "apple"],
             &["--rename-vbcable", "delete"],
             &["--filter-ms", "x"],
@@ -614,7 +608,6 @@ mod tests {
             &["--mic", "USB"],
             &["--config", "x.toml", "--engine", "nlms"],
             &["--siri-guard"],
-            &["--siri-model", "a.onnx"],
             &["--duration-s", "5"],
             &["--sim-guard-in", "a.wav", "--sim-guard-out", "b.wav"],
         ] {
