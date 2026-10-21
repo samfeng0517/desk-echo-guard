@@ -1,6 +1,8 @@
-# Hey Siri 防誤觸
+# Hey Siri 防誤觸：研究與實測
 
-[← 回 README](../README.md)
+[← 回 README](../README.md) ・ [Hey Siri 防誤觸（怎麼設定）](siri-guard.md)
+
+這一頁是給好奇的人看的研究筆記和量測數據；只想知道怎麼開、怎麼選，看 [Hey Siri 防誤觸](siri-guard.md) 就好。
 
 要解決的問題：通話對方說「Hey Siri」，從你的喇叭播出來，把你的 HomePod / iPhone 叫醒。
 
@@ -73,7 +75,7 @@
 
 ## 實作方式
 
-程式碼在 `echoguard/siri_guard.py`。
+程式碼在 `crates/dsp/src/notch.rs`（陷波濾波器）、`crates/dsp/src/guard.rs`（SiriGuard、`sibilant` 偵測、時間控制）和 `crates/wakeword`（`detect` 模式的 openWakeWord 偵測器）。
 
 **陷波濾波器**
 
@@ -90,7 +92,8 @@
 拿不到 Siri 的偵測器，所以改用 openWakeWord 的開源模型（alexa、hey_jarvis、hey_mycroft）當替身，對 Piper TTS 合成的女聲和男聲做測試。
 
 - 數字是偵測分數（0–1，≥0.5 算觸發）；括號是 STOI 清晰度（1 = 完全不變）。
-- 重現：`experiments/guard_proxy_eval.py`（下表用 openWakeWord 0.6.0 的 ONNX 模型）。
+- 下表是用 Python 版（v0.3.1）的評估腳本 `experiments/guard_proxy_eval.py` 量的（openWakeWord 0.6.0 的 ONNX 模型）。這些腳本已隨 Python 版移除，要重現請到 [v0.3.1 的原始碼](https://github.com/samfeng0517/desk-echo-guard/tree/v0.3.1/experiments)。Rust 版的陷波濾波器照同樣的設計移植，並通過同樣門檻的測試。
+- 想自己聽聽處理後的聲音：`DeskEchoGuard.exe --sim-guard-in 通話.wav --sim-guard-out 處理後.wav --siri-mode always --siri-profile formant`（見[進階使用](usage.md#離線處理錄音)）。
 
 | 片語 / 聲音 | 原始 | deep-wide | apple-deep | apple-wide | formant |
 |---|---|---|---|---|---|

@@ -32,18 +32,18 @@
 
 | 引擎 | 實作 | 頻寬 | 遠端單講時的回聲衰減* | 雙方同時講話 | 適合 |
 |---|---|---|---|---|---|
-| **WebRTC**（預設） | WebRTC AEC3，透過 `livekit` | 全頻 48 kHz | **約 42 dB**（開降噪約 54 dB） | 會壓低你的聲音 | 一般使用 |
-| **Speex** | SpeexDSP，透過 `pyaec` | 約 7 kHz | 約 23 dB（開降噪約 43 dB） | **保留得好** | 常同時講話、覺得被吃字 |
-| **NLMS** | 內建純 numpy 自適應濾波器 | 約 7 kHz | 約 15–18 dB，沒有殘留回聲抑制 | 保留得好 | 前兩者都載入失敗時的備援 |
+| **WebRTC**（預設） | WebRTC AEC3，透過 LiveKit 的 `libwebrtc` crate | 全頻 48 kHz | **約 42 dB**（開降噪約 54 dB） | 會壓低你的聲音 | 一般使用 |
+| **Speex** | SpeexDSP（內附 C 原始碼，一起編進 exe） | 約 7 kHz | 約 23 dB（開降噪約 43 dB） | **保留得好** | 常同時講話、覺得被吃字 |
+| **NLMS** | 內建的純 Rust 自適應濾波器 | 約 7 kHz | 約 15–18 dB，沒有殘留回聲抑制 | 保留得好 | 前兩者都載入失敗時的備援 |
 
-\* TTS 語音、40 ms 延遲的離線量測；完整數據見[驗證結果](verification.md#回聲消除)。
+\* TTS 語音、40 ms 延遲的離線量測（Python 版 v0.3.1 的數字；Rust 版的測試數字也列在驗證結果裡）；完整數據見[驗證結果](verification.md#回聲消除)。
 
 **雙講是什麼意思**
 
 - 雙講 = 雙方同時講話。
 - 量測時回聲和你的聲音差不多大聲。這時 WebRTC 輸出的清晰度（STOI）只剩 0.59，原始麥克風是 0.74；Speex 是 0.98。
 - 回聲越小，WebRTC 壓低得越少。你的聲音比回聲大 14 dB 時是 0.88，原始麥克風是 0.96。
-- WebRTC 引擎透過 livekit 呼叫，這方面的積極程度沒辦法調。
+- WebRTC 引擎透過 LiveKit 的 `libwebrtc` 呼叫，這方面的積極程度沒辦法調。
 
 ## 延遲
 
@@ -53,22 +53,30 @@
 | 對方聲音，Siri 防護 `always` | 約多 12.5 ms（濾波器群延遲） |
 | 對方聲音，Siri 防護 `detect` / `sibilant` | 約多 1 秒（要等偵測器聽完整句） |
 
+## 音效裝置
+
+- 用 Windows 的 WASAPI 共用模式，喇叭聲音用 loopback 擷取。
+- 每個裝置一條**事件驅動**的執行緒：Windows 通知有資料才讀寫，不輪詢（舊的 Python 版用 `soundcard` 輪詢）。
+- 多聲道裝置會混成單聲道；喇叭沒在播聲音、Windows 不送資料時，照樣補上靜音，參考訊號不會斷。
+- 程式內部一律是 48 kHz 單聲道、10 ms（480 樣本）一個音框；Speex / NLMS 在 16 kHz 處理。
+
 ## 程式碼結構
 
+Rust workspace，`crates/` 底下六個 crate（細節見 [DESIGN.md](../DESIGN.md)）：
+
 ```
-echoguard/
-  aec.py          回聲消除引擎（webrtc / speex / nlms）+ 延遲線
-  buffers.py      ElasticBuffer（時脈漂移補償）、DelayLine
-  resample.py     串流整數倍重取樣（48k ↔ 16k）
-  delay.py        GCC-PHAT 延遲估計（「量測延遲」）
-  siri_guard.py   線性相位陷波、偵測器、SiriGuard
-  app.py          多執行緒即時管線
-  io_backend.py   裝置 I/O 介面 + soundcard（WASAPI）實作
-  sim.py          模擬裝置（測試用，可設各裝置的時脈誤差）
-  signals.py / metrics.py   合成測試訊號、ERLE / STOI 等量測
-  cli.py / gui.py           命令列 / 設定視窗
-  selftest.py     免音效裝置的自我檢測（exe 的 --self-test）
-  assets/         圖示
+crates/
+  dsp/        純 DSP，不碰作業系統：ElasticBuffer（時脈漂移補償）、DelayLine、
+              串流整數倍重取樣（48k ↔ 16k）、GCC-PHAT 延遲估計（「量測延遲」）、
+              線性相位陷波與 SiriGuard、NLMS、合成測試訊號與 ERLE / STOI 等量測
+  aec/        回聲消除引擎（webrtc / speex / nlms / off）+ 延遲線（AecProcessor）
+  wakeword/   openWakeWord 喚醒詞偵測（detect 模式），內建小型純 Rust ONNX 推論
+  audio/      裝置介面、WASAPI 實作（Windows）、模擬裝置（測試用，可設各裝置的時脈誤差）
+  core/       設定檔、多執行緒即時管線、量測延遲、VB-Cable 改名 / 停用、
+              開機自動啟動、自我檢測（--self-test）
+  app/        DeskEchoGuard.exe：Slint 圖形介面（ui/、規格見 UI.md）、系統匣、命令列
+assets/       圖示（tools/make_icon.py 產生）
+tools/        圖示產生器、Hey Siri 模型訓練說明（Python）
 ```
 
-開發、測試、打包見 [開發說明](development.md)。
+開發、測試、發佈見 [開發說明](development.md)。
