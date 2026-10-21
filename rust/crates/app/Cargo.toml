@@ -1,0 +1,55 @@
+[package]
+name = "desk-echo-guard"
+description = "Desk Echo Guard: system-wide echo cancellation for desk speakers + mic on Windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "DeskEchoGuard"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+echoguard-core.workspace = true
+echoguard-audio.workspace = true
+echoguard-aec.workspace = true
+echoguard-dsp.workspace = true
+hound.workspace = true
+clap = { version = "4.6", features = ["derive"] }
+slint = { version = "1.18", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-femtovg",
+    "renderer-software",
+    "software-renderer-systemfonts",
+    "accessibility",
+    "raw-window-handle-06",
+] }
+png = "0.18"
+arboard = { version = "3", default-features = false }
+open = "5"
+
+[target.'cfg(windows)'.dependencies]
+tray-icon = "0.26"
+window-vibrancy = "0.8"
+rfd = { version = "0.17", default-features = false }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+slint-build = "1.18"
+winresource = "0.1"

@@ -1,0 +1,83 @@
+// Every tooltip text of the program, in one place so they are easy to
+// review and edit.  Rule: 1–3 short sentences — what it is, when to touch
+// it, the recommended value.  Plain Traditional Chinese (Taiwan), no jargon.
+
+export global Tips {
+    // ---- navigation
+    out property <string> nav-toggle: "收合或展開左邊的選單。";
+    out property <string> nav-home: "回聲消除的開關、通話軟體要怎麼設定，以及即時音量。";
+    out property <string> nav-devices: "選麥克風、喇叭，以及檢查 VB-Cable（虛擬音效線）有沒有裝好。";
+    out property <string> nav-siri: "家裡有 HomePod / iPhone 才需要：防止通話對方說「Hey Siri」時叫醒你的裝置。";
+    out property <string> nav-advanced: "聲音處理、延遲、開機自動啟動、執行記錄。通常不用改。";
+    out property <string> nav-docs: "在瀏覽器開啟完整的使用說明。";
+
+    // ---- home
+    out property <string> start: "開始消除回音。通話前先按這裡，再開 Discord / LINE。";
+    out property <string> stop: "停止消除回音。停止後「回聲消除麥克風」沒有聲音，對方會聽不到你。";
+    out property <string> call-setup: "Discord / LINE 只要設定一次。設定完之後，只要記得先開本程式再通話。";
+    out property <string> copy-mic: "Discord：使用者設定 → 語音與視訊 → 輸入裝置。LINE：設定 → 通話 → 麥克風。按這裡可以複製名稱。";
+    out property <string> copy-siri-speaker: "Discord：語音與視訊 → 輸出裝置。LINE：設定 → 通話 → 喇叭。程式沒開時會聽不到對方。按這裡可以複製名稱。";
+    out property <string> call-echo-off: "通話軟體自己的「回音消除」請關掉；Discord 的 Krisp 降噪可以開著。";
+    out property <string> meters: "三條音量條讓你確認程式有正常運作。";
+    out property <string> meter-mic: "你說話時會跳動。完全不動代表選錯麥克風，請到「裝置」頁更換。";
+    out property <string> meter-ref: "對方說話或播放音樂時會跳動。不動代表選錯喇叭。";
+    out property <string> meter-out: "對方聽到的聲音。對方說話時這條幾乎不動，代表回音被消掉了。";
+
+    // ---- devices
+    out property <string> mic: "你實際說話用的麥克風。通常用 Windows 預設就好。";
+    out property <string> speaker: "你聽對方聲音用的喇叭。程式會聽它正在播的聲音，用來把回音扣掉。開 Siri 防護時也選真正的喇叭。";
+    out property <string> vbcable: "VB-Cable 是一條「虛擬音效線」：程式把消除回音後的聲音送進去，Discord / LINE 再從另一頭當麥克風收音。";
+    out property <string> vbcable-install: "安裝步驟：下載後解壓縮 → 對 VBCABLE_Setup_x64.exe 按右鍵「以系統管理員身分執行」→ 按 Install Driver → 重新開機。";
+    out property <string> tidy-cable: "把 VB-Cable 改成好懂的名字（例如「回聲消除麥克風」），並可隱藏用不到的裝置。Windows 會要求允許。";
+    out property <string> restore-cable: "改回原本的名稱並重新啟用所有 VB-Cable 裝置。要移除本程式前可以先按這個。";
+    out property <string> manual-cable: "程式會自動找到 VB-Cable，改過名稱也找得到。只有裝了別的虛擬音效線時才需要手動指定。";
+    out property <string> out-device: "消除回音後的聲音要送到哪個播放裝置。預設是 VB-Cable 的「CABLE Input」。";
+    out property <string> call-in-device: "Hey Siri 防誤觸用：通話軟體的聲音從哪裡進來。預設是 VB-CABLE A+B 的「CABLE-A Output」。";
+    out property <string> dialog-rename: "只改顯示的名稱，不影響驅動程式；改名前後本程式都找得到裝置。";
+    out property <string> dialog-hide: "和在「控制台 → 聲音」對裝置按右鍵 →「停用」一樣。本程式用到的裝置不會被停用。";
+
+    // ---- Hey Siri
+    out property <string> siri-enable: "家裡有 HomePod / iPhone 才需要。需要 VB-CABLE A+B，且通話軟體的喇叭要改選「Siri防護喇叭」。";
+    out property <string> siri-docs: "在瀏覽器開啟 Hey Siri 防誤觸的詳細說明與實測結果。";
+    out property <string> siri-mode: "什麼時候處理對方的聲音。不確定就用「一直處理」。";
+    out property <string> mode-always: "推薦。一律處理對方的聲音，不會多出明顯的延遲。";
+    out property <string> mode-sibilant: "只在需要時處理，但對方的聲音會晚約 1 秒；含「s」的其他字也會被處理到。";
+    out property <string> mode-detect: "只在需要時處理，但對方的聲音會晚約 1 秒；需要自己準備喚醒詞模型檔（.onnx）。";
+    out property <string> siri-model: "「偵測到 Hey Siri 才處理」要用的喚醒詞模型檔（.onnx）。";
+    out property <string> siri-threshold: "數字越大越不容易觸發。常被誤觸就調大，該處理時沒處理就調小。建議 0.5。";
+    out property <string> siri-profile: "先用「標準」。還是會被叫醒就改「加強」（聲音較悶，但最有效）。";
+    out property <string> copy-siri-name: "複製「Siri防護喇叭」這個名稱，貼到通話軟體的喇叭設定裡找。";
+
+    // ---- advanced
+    out property <string> engine: "WebRTC 消得最乾淨（推薦）。同時講話時對方說你被吃字，改 Speex。";
+    out property <string> engine-auto: "有 WebRTC 就用 WebRTC，沒有就自動改用其他引擎。";
+    out property <string> engine-webrtc: "推薦。消得最乾淨，開始後 1–3 秒就生效。";
+    out property <string> engine-speex: "你們同時講話時比較不會吃掉你的聲音；要 5–10 秒才完全生效，聲音稍微悶一點。";
+    out property <string> engine-nlms: "內建的簡易版本。其他引擎都不能用時才選。";
+    out property <string> engine-off: "不消除回音，只把麥克風聲音轉送出去。用來比較效果。";
+    out property <string> ns: "去除風扇、冷氣等持續的背景聲。建議開啟。要去鍵盤聲，請用 Discord 的 Krisp。";
+    out property <string> hpf: "去掉電源、冷氣的低沉嗡嗡聲。建議開啟。";
+    out property <string> agc: "自動把你的音量調平均。通常關著；對方覺得你忽大忽小再試試。";
+    out property <string> calibrate: "喇叭會播約 4 秒沙沙聲，請保持安靜。一直有殘留回音時才需要。";
+    out property <string> apply-suggestion: "把量測到的建議值填進下面的延遲設定。";
+    out property <string> ref-delay: "把喇叭的聲音延後再拿來比對。通常是 0；量測延遲建議時才改。";
+    out property <string> mic-delay: "把麥克風的聲音延後。通常是 0；量測結果說喇叭聲音「晚到」時才改。";
+    out property <string> gain: "調整送給對方的音量。對方覺得你太小聲或太大聲時再調，通常是 0 dB。";
+    out property <string> autostart: "開機後自動在背景開始消除回音，不用每次手動打開。推薦開啟。";
+    out property <string> close-to-tray: "按視窗右上角的 X 只會把視窗收起來，回聲消除會繼續。";
+    out property <string> diagnostics: "給作者找問題用的技術數字與執行記錄。";
+    out property <string> debug-wav: "停止時把麥克風、喇叭、輸出的聲音各存一個錄音檔（最多 10 分鐘），方便作者分析。平常請留空。";
+    out property <string> debug-wav-pick: "選擇要存錄音檔的資料夾。";
+    out property <string> debug-wav-clear: "不錄音（建議）。";
+    out property <string> copy-log: "複製最近的執行記錄，貼給作者幫你找問題。";
+    out property <string> open-config: "開啟存放設定檔（echoguard.toml）的資料夾。設定會自動儲存。";
+    out property <string> about: "版本、授權與相關連結。";
+    out property <string> github: "在瀏覽器開啟本程式的 GitHub 頁面。";
+    out property <string> diag-buffer: "喇叭聲音在程式裡排隊等待的時間。穩定在 20 ms 左右是正常的。";
+    out property <string> diag-drift: "喇叭和麥克風兩邊時脈的速度差。幾十到幾百 ppm 都正常，程式會自動補償。";
+    out property <string> diag-underruns: "聲音來不及送到而補靜音的次數。一直增加代表電腦太忙或緩衝太小。";
+    out property <string> diag-cpu: "處理每 10 ms 聲音花的時間。遠小於 10 ms 才正常。";
+    out property <string> diag-engine: "目前實際使用的回聲消除引擎。";
+    out property <string> diag-siri-latency: "防誤觸讓對方的聲音晚多少才播出來。「一直處理」約 12.5 ms，其他模式約 1 秒。";
+    out property <string> diag-siri: "Hey Siri 防誤觸處理過幾次對方的聲音。";
+}

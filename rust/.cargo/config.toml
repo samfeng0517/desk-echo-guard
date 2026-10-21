@@ -1,0 +1,5 @@
+# LiveKit's prebuilt libwebrtc is built with the static CRT (/MT); everything
+# else (Rust std, cc-built C/C++) must match or MSVC's linker fails with
+# RuntimeLibrary mismatches.  Bonus: the exe needs no VC++ runtime DLLs.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
