@@ -15,7 +15,7 @@ pub mod testsig;
 pub use delay_est::estimate_delay_ms;
 pub use delay_line::DelayLine;
 pub use elastic::{Clock, ElasticBuffer, ElasticOptions, ElasticStats};
-pub use guard::{GuardConfig, GuardMode, OracleDetector, SibilantDetector, SiriGuard};
+pub use guard::{GuardConfig, GuardMode, SibilantDetector, SiriGuard};
 pub use metrics::{band_energy_db, best_lag, db, energy, erle_db};
 pub use nlms::Nlms16k;
 pub use notch::{
@@ -34,4 +34,9 @@ pub const FRAME: usize = FS / 100;
 /// indices, `[start, end)`) to notch.  `start` is the index of `x[0]`.
 pub trait Detector: Send {
     fn feed(&mut self, x: &[f32], start: i64) -> Vec<(i64, i64)>;
+
+    /// Worst-case distance (samples) from a reported region's start to the
+    /// first sample of the block whose `feed` reports it.  The guard's
+    /// lookahead is derived from it.
+    fn report_delay(&self) -> usize;
 }

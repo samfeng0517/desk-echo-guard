@@ -1,11 +1,12 @@
 //! "Hey Siri" anti-trigger processing for the call output
-//! (`siri_guard.SiriGuard` and the model-free detectors).
+//! (`siri_guard.SiriGuard` and the model-free /s/ detector).
 //!
-//! The guard delays the stream by `lookahead` (~1 s), runs a detector on the
-//! *undelayed* input, and when the phrase is detected ramps the mask `m(t)`
-//! to 1 over the phrase region (still inside the delay buffer), then back to
-//! 0: `out = dry - m(t) * (dry - wet)`, with `wet` = the notched signal.
-//! `always` mode notches continuously (no detector, no lookahead).
+//! `sibilant` mode delays the stream by a short `lookahead` (~60 ms, derived
+//! from the detector, see [`Detector::report_delay`]), runs the detector on
+//! the *undelayed* input, and when it fires ramps the mask `m(t)` to 1 over
+//! the reported region (whose start is still inside the delay buffer), then
+//! back to 0: `out = dry - m(t) * (dry - wet)`, with `wet` = the notched
+//! signal.  `always` mode notches continuously (no detector, no lookahead).
 
 use std::fmt;
 use std::str::FromStr;
@@ -15,34 +16,6 @@ use anyhow::bail;
 use crate::filters::Sos;
 use crate::notch::{NotchBank, NotchConfig};
 use crate::{DelayLine, Detector, FS};
-
-/// Test helper: fixed regions known in advance.
-pub struct OracleDetector {
-    regions: Vec<(i64, i64)>,
-    given: Vec<bool>,
-}
-
-impl OracleDetector {
-    pub fn new(regions: Vec<(i64, i64)>) -> Self {
-        let given = vec![false; regions.len()];
-        Self { regions, given }
-    }
-}
-
-impl Detector for OracleDetector {
-    fn feed(&mut self, x: &[f32], start: i64) -> Vec<(i64, i64)> {
-        let end = start + x.len() as i64;
-        let mut out = Vec::new();
-        for (i, &(a, b)) in self.regions.iter().enumerate() {
-            // "detect" when the phrase has fully arrived (like a real KWS)
-            if !self.given[i] && b <= end {
-                self.given[i] = true;
-                out.push((a, b));
-            }
-        }
-        out
-    }
-}
 
 /// `scipy.signal.butter(4, [3500, 8000], btype="band", fs=48000,
 /// output="sos")`, computed with scipy 1.18 (hardcoded so no filter design
@@ -131,6 +104,9 @@ impl SibilantDetector {
         self.pre
     }
 
+    /// Analysis frame length in samples (10 ms).
+    pub const FRAME: usize = FS / 100;
+
     fn frame(&mut self, t: i64, out: &mut Vec<(i64, i64)>) {
         let n = self.pending.len() as f64;
         let (mut e_hb, mut e) = (0.0, 0.0);
@@ -160,7 +136,7 @@ impl SibilantDetector {
 
 impl Detector for SibilantDetector {
     fn feed(&mut self, x: &[f32], start: i64) -> Vec<(i64, i64)> {
-        let f = FS / 100;
+        let f = Self::FRAME;
         if self.pending.is_empty() {
             self.pending_start = start;
         }
@@ -179,6 +155,15 @@ impl Detector for SibilantDetector {
         }
         out
     }
+
+    /// A region starting at frame `t` (at `t - pre`) is reported once the
+    /// frame's last sample `t + FRAME - 1` has been fed; in the worst case
+    /// that sample is the first one of the block, so the region start lies
+    /// `FRAME - 1 + pre` samples before the block start.  Independent of the
+    /// block size.
+    fn report_delay(&self) -> usize {
+        Self::FRAME - 1 + self.pre.max(0) as usize
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -187,13 +172,11 @@ impl Detector for SibilantDetector {
 pub enum GuardMode {
     Always,
     Sibilant,
-    Detect,
     Off,
 }
 
 impl GuardMode {
-    pub const ALL: [GuardMode; 4] = [
-        GuardMode::Detect,
+    pub const ALL: [GuardMode; 3] = [
         GuardMode::Sibilant,
         GuardMode::Always,
         GuardMode::Off,
@@ -203,14 +186,13 @@ impl GuardMode {
         match self {
             GuardMode::Always => "always",
             GuardMode::Sibilant => "sibilant",
-            GuardMode::Detect => "detect",
             GuardMode::Off => "off",
         }
     }
 
     /// Modes that run a detector and need the lookahead.
     pub fn uses_detector(self) -> bool {
-        matches!(self, GuardMode::Detect | GuardMode::Sibilant)
+        matches!(self, GuardMode::Sibilant)
     }
 }
 
@@ -220,9 +202,8 @@ impl FromStr for GuardMode {
         Ok(match s.trim().to_ascii_lowercase().as_str() {
             "always" => GuardMode::Always,
             "sibilant" => GuardMode::Sibilant,
-            "detect" => GuardMode::Detect,
             "off" => GuardMode::Off,
-            _ => bail!("unknown siri guard mode {s:?}; choose from detect, sibilant, always, off"),
+            _ => bail!("unknown siri guard mode {s:?}; choose from sibilant, always, off"),
         })
     }
 }
@@ -236,16 +217,17 @@ impl fmt::Display for GuardMode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GuardConfig {
     pub mode: GuardMode,
-    pub lookahead_s: f64,
     pub ramp_ms: f64,
     pub notch: NotchConfig,
 }
 
+/// Safety margin on top of the lookahead the detector needs.
+pub const LOOKAHEAD_MARGIN_S: f64 = 0.005;
+
 impl Default for GuardConfig {
     fn default() -> Self {
         Self {
-            mode: GuardMode::Detect,
-            lookahead_s: 1.0,
+            mode: GuardMode::Always,
             ramp_ms: 15.0,
             notch: NotchConfig::default(),
         }
@@ -255,7 +237,8 @@ impl Default for GuardConfig {
 /// Streaming processor: `process(block, out)` (same length).
 ///
 /// Latency: notch group delay (12.5 ms default) + lookahead (0 in `always`
-/// mode; `off` passes the input through untouched, latency 0).
+/// mode; in `sibilant` mode the detector's report delay + ramp + a 5 ms
+/// margin, ~60 ms; `off` passes the input through untouched, latency 0).
 pub struct SiriGuard {
     cfg: GuardConfig,
     notch: NotchBank,
@@ -268,6 +251,7 @@ pub struct SiriGuard {
     latency: usize,
     regions: Vec<(i64, i64)>,
     detections: u64,
+    clamped: u64,
     /// absolute index of the next input sample
     t: i64,
     wet: Vec<f32>,
@@ -282,10 +266,10 @@ impl SiriGuard {
             bail!("mode {:?} needs a detector", cfg.mode.as_str());
         }
         let notch = NotchBank::new(cfg.notch.clone());
-        let lookahead = if cfg.mode.uses_detector() {
-            (cfg.lookahead_s * FS as f64) as usize
-        } else {
-            0
+        let ramp = ((cfg.ramp_ms * FS as f64 / 1000.0) as i64).max(1);
+        let lookahead = match (&detector, cfg.mode.uses_detector()) {
+            (Some(det), true) => Self::required_lookahead(det.as_ref(), ramp as usize),
+            _ => 0,
         };
         let latency = if cfg.mode == GuardMode::Off {
             0
@@ -293,7 +277,7 @@ impl SiriGuard {
             notch.delay() + lookahead
         };
         Ok(Self {
-            ramp: ((cfg.ramp_ms * FS as f64 / 1000.0) as i64).max(1),
+            ramp,
             dry_align: DelayLine::new(notch.delay()),
             dry_look: DelayLine::new(lookahead),
             wet_look: DelayLine::new(lookahead),
@@ -303,6 +287,7 @@ impl SiriGuard {
             latency,
             regions: Vec::new(),
             detections: 0,
+            clamped: 0,
             t: 0,
             wet: Vec::new(),
             dry: Vec::new(),
@@ -310,6 +295,13 @@ impl SiriGuard {
             mask: Vec::new(),
             cfg,
         })
+    }
+
+    /// Lookahead (samples) that lets every region reported by `det` start,
+    /// ramp included, inside the delay buffer: the detector's worst-case
+    /// report delay + the fade-in ramp + [`LOOKAHEAD_MARGIN_S`].
+    pub fn required_lookahead(det: &dyn Detector, ramp: usize) -> usize {
+        det.report_delay() + ramp + (LOOKAHEAD_MARGIN_S * FS as f64).round() as usize
     }
 
     pub fn config(&self) -> &GuardConfig {
@@ -336,6 +328,13 @@ impl SiriGuard {
 
     pub fn detections(&self) -> u64 {
         self.detections
+    }
+
+    /// Regions whose start (fade-in ramp included) was already past the
+    /// output when reported, so their beginning could not be notched.
+    /// Stays 0 when the lookahead covers the detector's report delay.
+    pub fn clamped(&self) -> u64 {
+        self.clamped
     }
 
     /// Fill `self.mask` for *input* indices `[s, s+n)` and prune regions that
@@ -384,9 +383,13 @@ impl SiriGuard {
         }
         if self.cfg.mode.uses_detector() {
             if let Some(det) = self.detector.as_mut() {
+                // earliest input index still ahead of (or in) this output block
+                let earliest = self.t - self.latency as i64;
                 for (a, b) in det.feed(x, self.t) {
-                    // earliest input index still ahead of (or in) this output block
-                    let a = a.max(self.t - self.latency as i64);
+                    if a - self.ramp < earliest {
+                        self.clamped += 1;
+                    }
+                    let a = a.max(earliest);
                     if b > a {
                         self.regions.push((a, b));
                         self.detections += 1;
