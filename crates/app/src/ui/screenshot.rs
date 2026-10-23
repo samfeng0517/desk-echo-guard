@@ -260,3 +260,106 @@ pub fn run(dir: &Path) -> Result<()> {
     let _ = std::fs::remove_file(sh.dir.join("screenshot-settings.toml"));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{TipState, Tips};
+
+    const STALE: Rgb8Pixel = Rgb8Pixel {
+        r: 255,
+        g: 0,
+        b: 255,
+    };
+
+    /// Draw into `buf` like the winit backend does with a reused buffer:
+    /// only the dirty region is repainted.
+    fn draw(window: &MinimalSoftwareWindow, buf: &mut [Rgb8Pixel], w: usize) {
+        window.draw_if_needed(|r| {
+            r.render(buf, w);
+        });
+    }
+
+    fn stale_pixels(buf: &[Rgb8Pixel]) -> usize {
+        buf.iter().filter(|p| **p == STALE).count()
+    }
+
+    // one test: Slint's platform can be set only once per process
+    #[test]
+    fn full_repaint_and_tooltip_hiding() {
+        let dir = std::env::temp_dir().join(format!("deg-ui-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        let now = Rc::new(Cell::new(Duration::ZERO));
+        slint::platform::set_platform(Box::new(ShotPlatform {
+            window: window.clone(),
+            now: now.clone(),
+        }))
+        .unwrap();
+        let ui = AppWindow::new().unwrap();
+        window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
+        ui.show().unwrap();
+        let mut sh = Shooter {
+            ui,
+            window,
+            now,
+            dir: dir.clone(),
+            ctrl: None,
+        };
+        sh.size(900, 640);
+        sh.engine(MockOptions {
+            delays: false,
+            ..Default::default()
+        });
+        sh.page(0);
+        sh.advance(1000);
+
+        // ---- Windows threw the window contents away (minimize / restore)
+        let (w, h) = (900, 640);
+        let mut buf = vec![STALE; w * h];
+        sh.window.request_redraw();
+        draw(&sh.window, &mut buf, w);
+        assert_eq!(stale_pixels(&buf), 0, "first frame paints everything");
+        buf.fill(STALE);
+        sh.window.request_redraw();
+        draw(&sh.window, &mut buf, w);
+        assert!(
+            stale_pixels(&buf) > w * h / 2,
+            "a plain redraw only repaints what changed"
+        );
+        let app = sh.ui.global::<AppState>();
+        app.set_repaint(!app.get_repaint());
+        draw(&sh.window, &mut buf, w);
+        assert_eq!(
+            stale_pixels(&buf),
+            0,
+            "flipping AppState.repaint repaints all"
+        );
+
+        // ---- the start button's tooltip changes text while it is shown
+        let tip = sh.ui.global::<TipState>();
+        let tips = sh.ui.global::<Tips>();
+        sh.hover(790.0, 136.0);
+        assert!(tip.get_shown());
+        assert_eq!(tip.get_text(), tips.get_start());
+        sh.ctrl().start(StartReason::User);
+        sh.advance(500);
+        assert!(app.get_running());
+        assert_eq!(tip.get_text(), tips.get_stop(), "follows the new text");
+        sh.unhover();
+        assert!(!tip.get_shown(), "hides after its text changed");
+
+        // ---- the window is resized while a tooltip is shown
+        sh.hover(790.0, 136.0);
+        sh.unhover();
+        sh.hover(790.0, 136.0);
+        assert!(tip.get_shown());
+        sh.size(800, 600);
+        assert!(!tip.get_shown(), "a resize drops the tooltip");
+
+        if let Some(c) = sh.ctrl.take() {
+            c.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

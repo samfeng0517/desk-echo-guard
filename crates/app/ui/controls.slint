@@ -44,7 +44,10 @@ export component FluentIcon inherits Image {
 
 // ------------------------------------------------------------- tooltips
 // One shared overlay (ToolTipOverlay, placed last in the window) shows the
-// text of whichever Tip area is hovered or focused for 500 ms.
+// text of whichever Tip area is hovered or focused for 500 ms.  `owner`
+// tells which Tip showed it: a Tip's text and position can change while
+// its tooltip is up (開始 -> 停止, a window resize), and it must still be
+// able to hide it.
 
 export global TipState {
     in-out property <string> text;
@@ -54,6 +57,7 @@ export global TipState {
     in-out property <length> th;
     in-out property <length> mx;     // pointer x when shown (wide targets)
     in-out property <bool> shown;
+    in-out property <int> owner;     // bumped by every show
 }
 
 // Wrap any element in a Tip to give it a tooltip:  Tip { tip: Tips.x; Button {} }
@@ -62,6 +66,7 @@ export component Tip inherits TouchArea {
     in property <string> tip;
     in property <bool> focused: false;
     private property <bool> focus-fresh: false;
+    private property <int> my-tip: 0;  // TipState.owner when this Tip showed it
     private property <bool> active: root.tip != "" && root.enabled && (root.has-hover || root.focus-fresh);
 
     changed focused => {
@@ -76,6 +81,11 @@ export component Tip inherits TouchArea {
         } else {
             delay.running = false;
             root.hide-tip();
+        }
+    }
+    changed tip => {
+        if TipState.shown && TipState.owner == root.my-tip {
+            TipState.text = root.tip;
         }
     }
     changed has-hover => {
@@ -108,6 +118,8 @@ export component Tip inherits TouchArea {
     }
 
     function show-tip() {
+        TipState.owner += 1;
+        root.my-tip = TipState.owner;
         TipState.text = root.tip;
         TipState.tx = root.absolute-position.x;
         TipState.ty = root.absolute-position.y;
@@ -117,7 +129,7 @@ export component Tip inherits TouchArea {
         TipState.shown = true;
     }
     function hide-tip() {
-        if TipState.shown && TipState.text == root.tip && TipState.tx == root.absolute-position.x && TipState.ty == root.absolute-position.y {
+        if TipState.shown && TipState.owner == root.my-tip {
             TipState.shown = false;
         }
     }

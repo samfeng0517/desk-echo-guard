@@ -35,6 +35,10 @@ export component AppWindow inherits Window {
     private property <bool> narrow: false;
     changed width => {
         root.narrow = root.width < 840px;
+        TipState.shown = false;  // its target moved
+    }
+    changed height => {
+        TipState.shown = false;
     }
     private property <bool> compact: AppState.nav-compact || root.narrow;
     private property <length> nav-width: root.compact ? 56px : 248px;
@@ -296,5 +300,15 @@ export component AppWindow inherits Window {
     ToolTipOverlay {
         width: root.width;
         height: root.height;
+    }
+
+    // Invisible.  Flipping AppState.repaint dirties the whole window, so
+    // the software renderer (which repaints only what changed) draws all
+    // of it again after Windows threw the contents away (Controller::
+    // repaint_all).
+    Rectangle {
+        width: root.width;
+        height: root.height;
+        background: AppState.repaint ? #ffffff00 : #00000000;
     }
 }

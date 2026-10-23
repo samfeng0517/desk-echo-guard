@@ -71,7 +71,20 @@ Slint has no built-in tooltip widget: implement one reusable `ToolTip`
 component (hover delay timer, rounded card with shadow, positioned below
 the target and kept inside the window, max width ~320 px, wraps text).
 Keep all tooltip texts in one place (a `.slint` global or a Rust table) so
-they are easy to review and edit.
+they are easy to review and edit.  A tooltip must disappear even if its
+text or position changed while it was up (開始 -> 停止 when the run state
+changes, a window resize): the Tip that showed it owns it by a serial
+number, not by matching text and position.  It also disappears when the
+window loses focus, is minimized or hidden to the tray, or is resized.
+
+Window repaints: the default software renderer only repaints what changed,
+but Windows may throw the window contents away (minimize / restore, hide /
+show, lock screen, display changes; seen on Windows 10), which left stale
+pixels: the windows behind it, old tooltips.  On those window events
+(focus gained, un-occluded, resized, scale change) and on every show, the
+controller flips `AppState.repaint`, which dirties a full-window invisible
+rectangle, so the next frame repaints everything (again 200 ms later, after
+the restore animation).
 
 ## 首頁
 

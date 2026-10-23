@@ -10,6 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use crate::engine::{
@@ -17,7 +18,7 @@ use crate::engine::{
     Status, CABLE_RENAMES, VBCABLE_DOWNLOAD_URL,
 };
 use crate::tray::{Tray, TrayCmd};
-use crate::{AppState, AppWindow, Cfg, DiagRow, InfoBarData, Severity};
+use crate::{AppState, AppWindow, Cfg, DiagRow, InfoBarData, Severity, TipState};
 
 pub const ENGINES: [&str; 5] = ["auto", "webrtc", "speex", "nlms", "off"];
 pub const MODES: [&str; 2] = ["always", "sibilant"];
@@ -313,6 +314,11 @@ impl Controller {
                 }
             });
             resp
+        });
+        // (only the winit backend calls this, not the screenshot window)
+        ui.window().on_winit_window_event(|_, event| {
+            with_ctrl(|c| c.window_event(event));
+            EventResult::Propagate
         });
     }
 
@@ -1428,6 +1434,46 @@ impl Controller {
         self.set_visible(true);
         self.refresh_devices();
         super::window_shown(&ui);
+        self.repaint_all();
+    }
+
+    /// Windows may throw the window contents away: minimize / restore,
+    /// hide to the tray / show, lock screen, display changes (seen on
+    /// Windows 10).  The software renderer repaints only what changed, so
+    /// the rest of the window kept stale pixels: whatever was behind it, a
+    /// tooltip long gone.  Repaint everything whenever that may have
+    /// happened, and drop the tooltip when the window goes away.
+    fn window_event(&self, event: &WindowEvent) {
+        match event {
+            WindowEvent::Focused(false) | WindowEvent::Occluded(true) => self.hide_tip(),
+            WindowEvent::Focused(true)
+            | WindowEvent::Occluded(false)
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. } => self.repaint_all(),
+            _ => {}
+        }
+    }
+
+    fn repaint_all(&self) {
+        self.flip_repaint();
+        // once more after a restore: what is drawn while the window is
+        // still minimized (activation comes first) never reaches the screen
+        Timer::single_shot(Duration::from_millis(200), || {
+            with_ctrl(|c| c.flip_repaint())
+        });
+    }
+
+    fn flip_repaint(&self) {
+        if let Some(ui) = self.ui() {
+            let app = ui.global::<AppState>();
+            app.set_repaint(!app.get_repaint());
+        }
+    }
+
+    fn hide_tip(&self) {
+        if let Some(ui) = self.ui() {
+            ui.global::<TipState>().set_shown(false);
+        }
     }
 
     /// X button: hide to the tray.  Returns false when the window must stay.
@@ -1440,6 +1486,7 @@ impl Controller {
             return true;
         }
         self.set_visible(false);
+        self.hide_tip();
         let first = !std::mem::replace(&mut self.st.borrow_mut().tray_hint_shown, true);
         if first {
             if let Some(t) = self.tray.borrow().as_ref() {
