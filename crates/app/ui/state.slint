@@ -23,6 +23,7 @@ export global AppState {
     in-out property <int> page: 0;            // 0 home, 1 devices, 2 siri, 3 advanced
     in-out property <bool> nav-compact: false;
     in property <bool> is-windows: true;
+    in property <bool> repaint;               // flipped to repaint the whole window
 
     // run state
     in property <bool> running;

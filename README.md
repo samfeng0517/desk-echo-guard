@@ -13,6 +13,7 @@ Windows 用的全系統回聲消除程式，給用**桌上型喇叭 + 桌上型�
 > - 舊版（Python，v0.3.1）已在 Windows 實機（桌上型喇叭 + 桌上型麥克風，Discord 通話）上使用，回聲消除有效；新版用的是同一套 WebRTC 回聲消除。
 > - Hey Siri 防誤觸預設用 `deep-wide`（2.8–6.5 kHz 整段深陷波）；舊版較淺的 `apple` 實機擋不住，已移除。Apple 的做法沒有官方公開，詳見 [Hey Siri 防誤觸](docs/siri-guard.md)。
 > - v0.4.1：Hey Siri 防誤觸移除了需要自己訓練模型的 `detect`（偵測到「Hey Siri」才處理）模式，舊設定檔會自動改用 `sibilant`；`sibilant`（只在「s」音時處理）的延遲從約 1 秒降到約 0.07 秒。
+> - v0.4.2：修正視窗縮小（或縮到系統匣）再打開後畫面破掉、提示框消不掉的問題（Windows 10 較常見）。
 
 ## 下載
 
