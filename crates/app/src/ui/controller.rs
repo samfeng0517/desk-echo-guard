@@ -30,6 +30,17 @@ const SAVE_DELAY: Duration = Duration::from_millis(400);
 const POLL_FAST: Duration = Duration::from_millis(150);
 const POLL_SLOW: Duration = Duration::from_millis(1000);
 const AUTO_START_TRIES: u32 = 12;
+/// The pipeline stopped by itself (sleep, display off, device unplugged):
+/// retry once the device list settles after a change, else every 5 s for
+/// a minute, then every 30 s (a display can stay off for hours).
+const RECOVER_SETTLE: Duration = Duration::from_secs(2);
+const RECOVER_FAST: Duration = Duration::from_secs(5);
+const RECOVER_FAST_FOR: Duration = Duration::from_secs(60);
+const RECOVER_SLOW: Duration = Duration::from_secs(30);
+/// A pipeline that fails this soon after starting failed to start; after
+/// this many in a row, stop retrying and ask the user.
+const STABLE_AFTER: Duration = Duration::from_secs(15);
+const MAX_QUICK_FAILS: u32 = 5;
 const SOUND_SETTINGS_URL: &str = "ms-settings:sound";
 
 /// Messages from worker threads / the tray, handled on the UI thread.
@@ -51,6 +62,8 @@ pub enum StartReason {
     Resume,
     /// launched at sign-in; attempt number
     Auto(u32),
+    /// the pipeline stopped by itself, or Windows switched a default device
+    Recover,
 }
 
 pub enum AfterStop {
@@ -59,6 +72,8 @@ pub enum AfterStop {
     Quit,
     Calibrate,
     Cable(Vec<CableAction>),
+    /// restart once the devices are back (see `Recovery`)
+    Recover,
 }
 
 #[derive(Clone)]
@@ -68,6 +83,13 @@ struct CalibResult {
     message: String,
     /// (delay_ms, mic_delay_ms) to apply
     suggestion: Option<(f64, f64)>,
+}
+
+/// Waiting to restart the pipeline by itself.
+struct Recovery {
+    since: Instant,
+    /// last reason / start error logged (each is logged once)
+    logged: String,
 }
 
 #[derive(Default)]
@@ -88,6 +110,12 @@ struct State {
     log_dirty: bool,
     loud_until: Option<Instant>,
     pipeline_error: Option<String>,
+    recovering: Option<Recovery>,
+    /// pipeline failures soon after a start, in a row
+    quick_fails: u32,
+    /// ids of the Windows default [mic, speaker] the pipeline runs on (only
+    /// for those set to "Windows 預設")
+    run_defaults: [Option<String>; 2],
     start_error: Option<String>,
     /// the device list cannot be read (no audio system)
     device_error: Option<String>,
@@ -113,6 +141,7 @@ pub struct Controller {
     apply_timer: Timer,
     save_timer: Timer,
     retry_timer: Timer,
+    recover_timer: Timer,
     t0: Instant,
     /// run worker jobs inline (headless screenshots)
     sync: bool,
@@ -202,6 +231,7 @@ impl Controller {
             apply_timer: Timer::default(),
             save_timer: Timer::default(),
             retry_timer: Timer::default(),
+            recover_timer: Timer::default(),
             t0: Instant::now(),
             sync: opts.sync,
         });
@@ -741,6 +771,12 @@ impl Controller {
         if self.st.borrow().busy {
             return;
         }
+        if reason != StartReason::Recover {
+            self.cancel_recovery();
+        }
+        if reason == StartReason::User {
+            self.st.borrow_mut().quick_fails = 0;
+        }
         self.save_now();
         self.set_busy(true, "啟動中…");
         let settings = self.st.borrow().settings.clone();
@@ -755,19 +791,28 @@ impl Controller {
         self.set_busy(false, "");
         match res {
             Ok(()) => {
+                let devices = self.engine.devices().unwrap_or_default();
                 {
                     let mut st = self.st.borrow_mut();
                     st.running = true;
                     st.start_error = None;
                     st.pipeline_error = None;
                     st.autostart_failed = false;
+                    st.recovering = None;
                     st.started_at = Some(Instant::now());
+                    let defaults = default_ids(&devices);
+                    let followed = [st.settings.mic.is_none(), st.settings.speaker.is_none()];
+                    st.run_defaults = [0, 1].map(|i| defaults[i].clone().filter(|_| followed[i]));
                 }
                 let engine = self.engine.engine_name().unwrap_or_default();
                 self.log(format!("已開始（引擎：{engine}）。"));
                 if reason == StartReason::Apply {
                     self.toast("已套用變更");
                 }
+            }
+            Err(e) if reason == StartReason::Recover => {
+                self.note_recovery(&format!("還不能開始：{e}"));
+                self.schedule_recovery(None);
             }
             Err(e) => {
                 self.log(format!("無法開始：{e}"));
@@ -824,7 +869,161 @@ impl Controller {
             AfterStop::Quit => slint::quit_event_loop().unwrap_or_default(),
             AfterStop::Calibrate => self.run_calibration(true),
             AfterStop::Cable(actions) => self.run_cable(actions, true),
+            AfterStop::Recover => {
+                // give a device that keeps dropping out longer each time
+                let n = self.st.borrow().quick_fails.max(1);
+                self.schedule_recovery(Some(RECOVER_SETTLE * n));
+            }
         }
+    }
+
+    // ------------------------------------------------------- recovery
+
+    /// The pipeline stopped by itself (sleep, display off, device
+    /// unplugged): restart once the devices are back.  Only after many
+    /// failures right after starting, show the error and wait for the user.
+    fn pipeline_failed(&self, err: String) {
+        let give_up = {
+            let mut st = self.st.borrow_mut();
+            let quick = st.started_at.is_some_and(|t| t.elapsed() < STABLE_AFTER);
+            st.quick_fails = if quick { st.quick_fails + 1 } else { 0 };
+            st.quick_fails >= MAX_QUICK_FAILS
+        };
+        if give_up {
+            self.st.borrow_mut().pipeline_error = Some(err);
+            self.stop(AfterStop::Nothing);
+            self.show_window();
+        } else {
+            self.log("音效裝置回來後會自動重新開始。");
+            self.begin_recovery();
+        }
+    }
+
+    /// Stop now and restart by itself once the devices are ready.
+    fn begin_recovery(&self) {
+        self.st.borrow_mut().recovering = Some(Recovery {
+            since: Instant::now(),
+            logged: String::new(),
+        });
+        self.stop(AfterStop::Recover);
+    }
+
+    fn cancel_recovery(&self) {
+        if self.st.borrow_mut().recovering.take().is_some() {
+            self.recover_timer.stop();
+        }
+    }
+
+    /// Next recovery attempt: `after`, or the regular retry interval.
+    fn schedule_recovery(&self, after: Option<Duration>) {
+        let Some(since) = self.st.borrow().recovering.as_ref().map(|r| r.since) else {
+            return;
+        };
+        let d = after.unwrap_or(if since.elapsed() < RECOVER_FAST_FOR {
+            RECOVER_FAST
+        } else {
+            RECOVER_SLOW
+        });
+        self.recover_timer
+            .start(TimerMode::SingleShot, d, || with_ctrl(|c| c.try_recover()));
+    }
+
+    fn try_recover(&self) {
+        let (waiting, blocked) = {
+            let st = self.st.borrow();
+            (
+                st.recovering.is_some(),
+                st.running || st.busy || st.calibrating,
+            )
+        };
+        if !waiting {
+            return;
+        }
+        if blocked {
+            self.schedule_recovery(Some(RECOVER_SETTLE));
+            return;
+        }
+        self.refresh_devices();
+        if let Some(why) = self.devices_missing() {
+            self.note_recovery(&format!("等待裝置：{why}"));
+            self.schedule_recovery(None);
+            return;
+        }
+        self.start(StartReason::Recover);
+    }
+
+    /// Log a recovery step once (retries go on for hours).
+    fn note_recovery(&self, line: &str) {
+        let new = {
+            let mut st = self.st.borrow_mut();
+            match st.recovering.as_mut() {
+                Some(r) if r.logged != line => {
+                    r.logged = line.to_string();
+                    true
+                }
+                _ => false,
+            }
+        };
+        if new {
+            self.log(line);
+        }
+    }
+
+    /// Why the pipeline cannot start yet, if a device it needs is gone.
+    fn devices_missing(&self) -> Option<String> {
+        let st = self.st.borrow();
+        if st.device_error.is_some() {
+            return Some("Windows 的音效系統還沒準備好".into());
+        }
+        let check = |kind: DeviceKind, what: &str, configured: &Option<String>| match configured {
+            Some(q) => {
+                let names: Vec<String> = st
+                    .devices
+                    .iter()
+                    .filter(|d| d.kind == kind)
+                    .map(|d| d.name.clone())
+                    .collect();
+                match_index(&names, q)
+                    .is_none()
+                    .then(|| format!("找不到{what}「{q}」"))
+            }
+            // without the display's speakers Windows may pick VB-Cable as
+            // the default: its loopback is our own output, not the speakers
+            None => match st.devices.iter().find(|d| d.kind == kind && d.default) {
+                None => Some(format!("Windows 沒有預設{what}")),
+                Some(d) if is_vbcable(&d.name) => {
+                    Some(format!("Windows 預設{what}現在是虛擬音效線「{}」", d.name))
+                }
+                Some(_) => None,
+            },
+        };
+        if !st.cable.found {
+            return Some("找不到 VB-Cable".into());
+        }
+        check(DeviceKind::Mic, "麥克風", &st.settings.mic)
+            .or_else(|| check(DeviceKind::Speaker, "喇叭", &st.settings.speaker))
+    }
+
+    /// Running on a "Windows 預設" device and Windows switched that default
+    /// (e.g. the display's speakers came back after sleep): the pipeline
+    /// would keep capturing the old one, so restart on the new one.
+    fn follow_defaults(&self) -> bool {
+        let changed = {
+            let st = self.st.borrow();
+            let now = default_ids(&st.devices);
+            st.running
+                && !st.busy
+                && st
+                    .run_defaults
+                    .iter()
+                    .zip(&now)
+                    .any(|(was, now)| was.is_some() && was != now)
+        };
+        if changed {
+            self.log("Windows 的預設音效裝置換了，自動改用新的裝置重新開始。");
+            self.begin_recovery();
+        }
+        changed
     }
 
     fn after_run_change(&self) {
@@ -875,15 +1074,20 @@ impl Controller {
         };
         if self.engine.device_generation() != generation {
             self.refresh_devices();
+            if self.st.borrow().recovering.is_some() {
+                // a device came (or went): try once the list settles
+                self.schedule_recovery(Some(RECOVER_SETTLE));
+            }
+            if self.follow_defaults() {
+                return;
+            }
         }
         let mut bars_dirty = false;
         if running {
             if let Some(status) = self.engine.status() {
                 if let Some(err) = status.error.clone() {
                     self.log(format!("錯誤：{err}"));
-                    self.st.borrow_mut().pipeline_error = Some(err);
-                    self.stop(AfterStop::Nothing);
-                    self.show_window();
+                    self.pipeline_failed(err);
                     return;
                 }
                 if self.engine.take_mic_peak() > 0.9 {
@@ -1010,6 +1214,16 @@ impl Controller {
             "download-vbcable",
             &tips.get_vbcable_install(),
         );
+        if st.recovering.is_some() {
+            home.push(bar(
+                Severity::Info,
+                "等音效裝置回來",
+                "電腦休眠、螢幕關掉或裝置被拔掉時，喇叭或麥克風會暫時不見。裝置回來後會自動繼續，不用按任何按鈕。",
+                "立即重試",
+                "recover-now",
+                "不想等的話，按這裡馬上再試一次。",
+            ));
+        }
         if let Some(err) = &st.pipeline_error {
             home.push(bar(
                 Severity::Error,
@@ -1176,6 +1390,16 @@ impl Controller {
                 }
                 self.refresh_devices();
                 self.start(StartReason::User);
+            }
+            "recover-now" => {
+                if self.st.borrow().recovering.is_none() {
+                    return;
+                }
+                self.refresh_devices();
+                match self.devices_missing() {
+                    Some(why) => self.toast(&format!("{why}，回來後會自動繼續")),
+                    None => self.try_recover(),
+                }
             }
             "copy-siri-name" => {
                 let name = {
@@ -1527,6 +1751,16 @@ impl Controller {
         }
         CTRL.with(|c| *c.borrow_mut() = None);
     }
+}
+
+/// Ids of the Windows default [mic, speaker].
+fn default_ids(devices: &[DeviceInfo]) -> [Option<String>; 2] {
+    [DeviceKind::Mic, DeviceKind::Speaker].map(|kind| {
+        devices
+            .iter()
+            .find(|d| d.kind == kind && d.default)
+            .map(|d| d.id.clone())
+    })
 }
 
 fn short(msg: &str) -> String {

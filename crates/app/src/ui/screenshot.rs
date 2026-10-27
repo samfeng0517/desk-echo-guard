@@ -60,10 +60,13 @@ impl Shooter {
     }
 
     fn engine(&mut self, opts: MockOptions) {
+        self.engine_with(Arc::new(MockEngine::new(opts, Arc::new(|_| {}))));
+    }
+
+    fn engine_with(&mut self, engine: Arc<dyn Engine>) {
         if let Some(c) = self.ctrl.take() {
             c.shutdown();
         }
-        let engine: Arc<dyn Engine> = Arc::new(MockEngine::new(opts, Arc::new(|_| {})));
         let ctrl = Controller::install(
             &self.ui,
             engine,
@@ -284,6 +287,98 @@ mod tests {
         buf.iter().filter(|p| **p == STALE).count()
     }
 
+    fn home_bars(sh: &Shooter) -> Vec<String> {
+        use slint::Model;
+        let bars = sh.ui.global::<AppState>().get_home_bars();
+        bars.iter().map(|b| b.title.to_string()).collect()
+    }
+
+    /// A fresh mock and controller on `speaker` (`None` = Windows default).
+    fn mock_on(sh: &mut Shooter, speaker: Option<&str>, opts: MockOptions) -> Arc<MockEngine> {
+        let settings = crate::engine::Settings {
+            speaker: speaker.map(str::to_string),
+            ..Default::default()
+        };
+        crate::engine::save_settings_file(&sh.dir.join("screenshot-settings.toml"), &settings)
+            .unwrap();
+        let mock = Arc::new(MockEngine::new(
+            MockOptions {
+                delays: false,
+                ..opts
+            },
+            Arc::new(|_| {}),
+        ));
+        sh.engine_with(mock.clone());
+        sh.page(0);
+        mock
+    }
+
+    /// Sleep / display off with the display's speakers: the pipeline waits
+    /// for them and restarts by itself (reported: had to press 重新開始).
+    fn recovery(sh: &mut Shooter) {
+        use crate::mock::DISPLAY;
+        const WAITING: &str = "等音效裝置回來";
+        const STOPPED: &str = "回聲消除停止了";
+        let running = |sh: &Shooter| sh.ui.global::<AppState>().get_running();
+
+        // ---- the display's speakers picked by name
+        let mock = mock_on(sh, Some(DISPLAY), MockOptions::default());
+        sh.ctrl().start(StartReason::User);
+        sh.advance(500);
+        assert!(running(sh));
+        assert_eq!(mock.speaker().as_deref(), Some(DISPLAY));
+        mock.set_display(false);
+        sh.advance(1000);
+        assert!(!running(sh), "the stream died with the display");
+        assert_eq!(home_bars(sh), [WAITING], "waits, no error to click away");
+        sh.advance(40_000);
+        assert!(!running(sh), "nothing to start on while it is off");
+        assert_eq!(home_bars(sh), [WAITING]);
+        mock.set_display(true);
+        sh.advance(3000);
+        assert!(running(sh), "restarted by itself after wake");
+        assert_eq!(mock.speaker().as_deref(), Some(DISPLAY));
+        assert!(home_bars(sh).is_empty(), "{:?}", home_bars(sh));
+
+        // ---- "Windows 預設" while the display's speakers are the default
+        let mock = mock_on(sh, None, MockOptions::default());
+        mock.set_display_default(true);
+        sh.advance(500);
+        sh.ctrl().start(StartReason::User);
+        sh.advance(500);
+        assert_eq!(mock.speaker().as_deref(), Some(DISPLAY));
+        mock.set_display(false);
+        sh.advance(3000);
+        assert!(running(sh), "follows Windows to the other speakers");
+        assert_ne!(mock.speaker().as_deref(), Some(DISPLAY));
+        assert!(home_bars(sh).is_empty(), "{:?}", home_bars(sh));
+        mock.set_display(true);
+        sh.advance(3000);
+        assert!(running(sh));
+        assert_eq!(
+            mock.speaker().as_deref(),
+            Some(DISPLAY),
+            "back on the display's speakers once they are the default again"
+        );
+
+        // ---- a pipeline that keeps failing right after it starts
+        mock_on(
+            sh,
+            None,
+            MockOptions {
+                fail_after: Some(Duration::ZERO),
+                ..Default::default()
+            },
+        );
+        sh.ctrl().start(StartReason::User);
+        sh.advance(1000);
+        assert!(!running(sh));
+        assert_eq!(home_bars(sh), [WAITING]);
+        sh.advance(30_000);
+        assert!(!running(sh));
+        assert_eq!(home_bars(sh), [STOPPED], "gives up and asks the user");
+    }
+
     // one test: Slint's platform can be set only once per process
     #[test]
     fn full_repaint_and_tooltip_hiding() {
@@ -356,6 +451,8 @@ mod tests {
         assert!(tip.get_shown());
         sh.size(800, 600);
         assert!(!tip.get_shown(), "a resize drops the tooltip");
+
+        recovery(&mut sh);
 
         if let Some(c) = sh.ctrl.take() {
             c.shutdown();
