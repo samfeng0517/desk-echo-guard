@@ -7,6 +7,9 @@
 //!   DEG_MOCK_NO_AB=1     no VB-CABLE A+B (Siri guard requirement)
 //!   DEG_MOCK_LOUD=1      mic clips now and then
 //!   DEG_MOCK_FAIL=1      the pipeline "fails" ~8 s after start
+//!   DEG_MOCK_SLEEP=1     the display's speakers (DELL U2720Q, also the
+//!                        Windows default) vanish 10–25 s after launch, as
+//!                        when the PC sleeps or the display turns off
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -26,6 +29,9 @@ pub struct MockOptions {
     pub renamed: bool,
     pub loud_mic: bool,
     pub fail_after: Option<Duration>,
+    /// the display's speakers are the Windows default and vanish 10–25 s
+    /// after launch
+    pub sleep: bool,
     /// Make start/stop/calibrate take realistic time.
     pub delays: bool,
 }
@@ -38,6 +44,7 @@ impl Default for MockOptions {
             renamed: false,
             loud_mic: false,
             fail_after: None,
+            sleep: false,
             delays: true,
         }
     }
@@ -51,13 +58,20 @@ impl MockOptions {
             cable_ab: !on("DEG_MOCK_NO_AB"),
             loud_mic: on("DEG_MOCK_LOUD"),
             fail_after: on("DEG_MOCK_FAIL").then_some(Duration::from_secs(8)),
+            sleep: on("DEG_MOCK_SLEEP"),
             ..Default::default()
         }
     }
 }
 
+pub const DISPLAY: &str = "DELL U2720Q (NVIDIA High Definition Audio)";
+/// `MockOptions::sleep`: the display is off this long after launch.
+const SLEEP: std::ops::Range<Duration> = Duration::from_secs(10)..Duration::from_secs(25);
+
 struct Run {
     since: Instant,
+    /// the speaker it captures
+    speaker: String,
     engine: String,
     siri: bool,
     siri_latency_ms: f64,
@@ -72,13 +86,17 @@ pub struct MockEngine {
     autostart: AtomicBool,
     generation: AtomicU64,
     peak_seq: AtomicU64,
+    created: Instant,
+    /// the display (and its speakers) is off
+    display_off: AtomicBool,
+    /// the display's speakers are the Windows default while present
+    display_default: AtomicBool,
 }
 
 impl MockEngine {
     pub fn new(opts: MockOptions, log: LogSink) -> Self {
         let renamed = opts.renamed;
         MockEngine {
-            opts,
             log,
             run: Mutex::new(None),
             renamed: AtomicBool::new(renamed),
@@ -86,7 +104,36 @@ impl MockEngine {
             autostart: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             peak_seq: AtomicU64::new(0),
+            created: Instant::now(),
+            display_off: AtomicBool::new(false),
+            display_default: AtomicBool::new(opts.sleep),
+            opts,
         }
+    }
+
+    /// Turn the display (and its speakers) off / on, like sleep and wake.
+    #[allow(dead_code)] // tests only
+    pub fn set_display(&self, on: bool) {
+        self.display_off.store(!on, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Make the display's speakers the Windows default (while present).
+    #[allow(dead_code)] // tests only
+    pub fn set_display_default(&self, on: bool) {
+        self.display_default.store(on, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The speaker the running pipeline captures.
+    #[allow(dead_code)] // tests only
+    pub fn speaker(&self) -> Option<String> {
+        self.run.lock().as_ref().map(|r| r.speaker.clone())
+    }
+
+    fn display_on(&self) -> bool {
+        !self.display_off.load(Ordering::Relaxed)
+            && !(self.opts.sleep && SLEEP.contains(&self.created.elapsed()))
     }
 
     fn sleep(&self, ms: u64) {
@@ -116,6 +163,24 @@ impl Engine for MockEngine {
         if !self.opts.cable {
             bail!("no speaker matches \"CABLE Input\". Available:\n  喇叭 (Realtek(R) Audio)");
         }
+        let speakers: Vec<DeviceInfo> = self
+            .devices()?
+            .into_iter()
+            .filter(|d| d.kind == DeviceKind::Speaker)
+            .collect();
+        let speaker = match &s.speaker {
+            Some(q) => match echoguard_audio::match_device(&speakers, q, "speaker") {
+                Ok(d) => d.name.clone(),
+                // the display's speakers while the display is off
+                Err(e) if DISPLAY.to_lowercase().contains(&q.to_lowercase()) => return Err(e),
+                // a real device from the user's own settings file
+                Err(_) => q.clone(),
+            },
+            None => speakers
+                .iter()
+                .find(|d| d.default)
+                .map_or_else(String::new, |d| d.name.clone()),
+        };
         let engine = if s.engine == "auto" {
             "webrtc".to_string()
         } else {
@@ -129,6 +194,7 @@ impl Engine for MockEngine {
         ));
         *self.run.lock() = Some(Run {
             since: Instant::now(),
+            speaker,
             engine,
             siri: s.siri_guard,
             // like the real guard: notch delay (+ the sibilant lookahead)
@@ -164,11 +230,11 @@ impl Engine for MockEngine {
         let mic = -58.0 + 40.0 * env(0.0, 3.7);
         let refl = -55.0 + 42.0 * env(1.7, 4.3);
         let out = mic - 6.0 + 4.0 * (t * 9.0).sin();
-        let error = self
-            .opts
-            .fail_after
-            .filter(|d| run.since.elapsed() > *d)
-            .map(|_| "WASAPI: device invalidated (AUDCLNT_E_DEVICE_INVALIDATED)".to_string());
+        let failed = self.opts.fail_after.is_some_and(|d| run.since.elapsed() > d)
+            // the speaker it captures is gone: WASAPI invalidates the stream
+            || (run.speaker == DISPLAY && !self.display_on());
+        let error =
+            failed.then(|| "WASAPI: device invalidated (AUDCLNT_E_DEVICE_INVALIDATED)".to_string());
         Some(Status {
             mic_db: mic,
             ref_db: refl,
@@ -220,12 +286,16 @@ impl Engine for MockEngine {
             let r = role_of(orig, None).filter(|_| renamed);
             format!("{}{}", r.map_or(orig, |r| r.renamed), suffix)
         };
+        let display = self.display_on();
+        let display_default = display && self.display_default.load(Ordering::Relaxed);
         let mut v = vec![
             dev(Mic, "麥克風 (Realtek(R) Audio)", true),
             dev(Mic, "耳機麥克風 (USB Audio Device)", false),
-            dev(Speaker, "喇叭 (Realtek(R) Audio)", true),
-            dev(Speaker, "DELL U2720Q (NVIDIA High Definition Audio)", false),
+            dev(Speaker, "喇叭 (Realtek(R) Audio)", !display_default),
         ];
+        if display {
+            v.push(dev(Speaker, DISPLAY, display_default));
+        }
         if self.opts.cable {
             v.push(dev(Mic, &name("CABLE Output", VB), false));
             v.push(dev(Speaker, &name("CABLE Input", VB), false));
@@ -245,7 +315,13 @@ impl Engine for MockEngine {
     }
 
     fn device_generation(&self) -> u64 {
-        self.generation.load(Ordering::Relaxed)
+        let t = self.created.elapsed();
+        let sleeps = if !self.opts.sleep {
+            0
+        } else {
+            u64::from(t >= SLEEP.start) + u64::from(t >= SLEEP.end)
+        };
+        self.generation.load(Ordering::Relaxed) + sleeps
     }
 
     fn cable_status(&self, devices: &[DeviceInfo]) -> CableStatus {

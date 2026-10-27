@@ -100,9 +100,18 @@ the restore animation).
   - 送給對方 – "對方說話時應該幾乎不動，代表回音被消掉了"
 * InfoBars (only when relevant): VB-Cable missing (error, action
   "下載 VB-Cable"); mic too loud (warning, "請把 Windows 的麥克風音量調低到
-  約 70–80%", action "開啟音效設定"); pipeline error / device unplugged
+  約 70–80%", action "開啟音效設定"); waiting for a device to come back
+  (info "等音效裝置回來", action "立即重試", see below); pipeline error
   (error, message in plain words, action "重新開始"); auto start failed;
   Siri guard enabled but VB-CABLE A+B missing (warning).
+* Recovery without clicks: when the pipeline stops by itself (sleep, the
+  display turned off with its speakers, a device unplugged) the window
+  does not pop up; the controller waits until the devices it needs are
+  present (a "Windows 預設" speaker must not be VB-Cable) and restarts:
+  2 s after each device change, else every 5 s for a minute, then every
+  30 s.  Only after 5 failures in a row within 15 s of starting does it
+  show the "回聲消除停止了" error.  While running on a "Windows 預設"
+  device, a change of that Windows default restarts on the new one.
 
 ## 裝置
 
