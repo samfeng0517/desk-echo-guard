@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use anyhow::{bail, Result};
 
+pub use rt::{disable_power_throttling, realtime_thread, RealtimeThread};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceKind {
     /// capture endpoint
@@ -94,6 +96,7 @@ pub fn default_backend() -> Result<Arc<dyn AudioBackend>> {
     }
 }
 
+pub mod rt;
 pub mod sim;
 pub mod stream;
 #[cfg(windows)]

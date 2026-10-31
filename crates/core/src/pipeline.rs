@@ -241,6 +241,9 @@ fn spawn(
     let h = thread::Builder::new()
         .name(name.into())
         .spawn(move || {
+            // Audio deadlines: without this the thread runs at normal
+            // priority and falls behind once the window is minimized.
+            let _rt = echoguard_audio::realtime_thread();
             let r = match panic::catch_unwind(AssertUnwindSafe(|| f(&sh))) {
                 Ok(r) => r,
                 Err(p) => Err(anyhow!("panic: {}", panic_text(p.as_ref()))),
@@ -407,6 +410,8 @@ pub struct EchoGuard {
 impl EchoGuard {
     /// Build the DSP, open the devices and start the threads.
     pub fn start(s: &Settings, backend: Arc<dyn AudioBackend>, log: LogSink) -> Result<EchoGuard> {
+        // keep full speed when minimized / in the tray (Windows EcoQoS)
+        echoguard_audio::disable_power_throttling();
         let opts = EngineOptions {
             noise_suppression: s.noise_suppression,
             high_pass_filter: s.high_pass,

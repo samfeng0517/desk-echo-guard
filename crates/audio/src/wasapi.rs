@@ -58,32 +58,6 @@ impl Drop for ComGuard {
     }
 }
 
-/// MMCSS "Pro Audio" scheduling for a device thread; reverted on drop.
-struct MmcssGuard(windows_sys::Win32::Foundation::HANDLE);
-
-impl MmcssGuard {
-    fn join() -> Self {
-        use windows_sys::Win32::System::Threading::AvSetMmThreadCharacteristicsW;
-        let name: Vec<u16> = "Pro Audio\0".encode_utf16().collect();
-        let mut index = 0u32;
-        // SAFETY: `name` is a NUL-terminated UTF-16 string that outlives the
-        // call; `index` is a valid out pointer.  Failure returns null.
-        let h = unsafe { AvSetMmThreadCharacteristicsW(name.as_ptr(), &mut index) };
-        MmcssGuard(h)
-    }
-}
-
-impl Drop for MmcssGuard {
-    fn drop(&mut self) {
-        use windows_sys::Win32::System::Threading::AvRevertMmThreadCharacteristics;
-        if !self.0.is_null() {
-            // SAFETY: handle returned by AvSetMmThreadCharacteristicsW on
-            // this thread, reverted once.
-            unsafe { AvRevertMmThreadCharacteristics(self.0) };
-        }
-    }
-}
-
 /// Run `f` on a short-lived thread with its own MTA, so the caller's
 /// apartment (e.g. an STA GUI thread) does not matter.
 fn with_mta<T: Send>(f: impl FnOnce() -> Result<T> + Send) -> Result<T> {
@@ -234,7 +208,7 @@ fn spawn_device_thread<T: Send + 'static>(
         .name(thread_name)
         .spawn(move || {
             let com = ComGuard::init_mta();
-            let mmcss = MmcssGuard::join();
+            let mmcss = crate::rt::realtime_thread();
             let mut init = Some(tx);
             // All COM objects live inside `body` and are released when it
             // returns, before COM is uninitialised below.

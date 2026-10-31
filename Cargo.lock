@@ -1191,7 +1191,7 @@ dependencies = [
 
 [[package]]
 name = "desk-echo-guard"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1342,7 +1342,7 @@ checksum = "edf234dd1594d6dd434a8fb8cada51ddbbc593e40e4a01556a0b31c62da2775b"
 
 [[package]]
 name = "echoguard-aec"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "cc",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "echoguard-audio"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "parking_lot",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "echoguard-core"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "ctrlc",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "echoguard-dsp"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "parking_lot",

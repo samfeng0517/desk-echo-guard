@@ -12,5 +12,5 @@ rtrb = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.26"
-# MMCSS ("Pro Audio") for the device threads
+# MMCSS ("Pro Audio") for the audio threads, power-throttling opt-out
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
