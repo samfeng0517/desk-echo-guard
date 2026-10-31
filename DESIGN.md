@@ -176,6 +176,11 @@ render thread (`wasapi` crate) feeding a lock-free ring buffer; `read` /
 `write` block on it.  Multi-channel devices are down-mixed / duplicated.
 Loopback endpoints that deliver no packets while nothing plays must still
 produce silence at the nominal rate (like soundcard's idle handling).
+Every audio thread (device threads and the pipeline threads in core) joins
+MMCSS "Pro Audio" (`rt::realtime_thread`, fallback `THREAD_PRIORITY_HIGHEST`)
+and the pipeline opts the process out of power throttling
+(`rt::disable_power_throttling`): once the window is minimized or hidden to
+the tray Windows drops the foreground boost and may apply EcoQoS.
 
 ### echoguard-core
 
