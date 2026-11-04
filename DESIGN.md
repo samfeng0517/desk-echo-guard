@@ -233,8 +233,9 @@ pub fn apply(actions: &[CableAction]) -> Result<Vec<String>>;          // needs 
 pub fn run_elevated(actions: &[CableAction]) -> (bool, String);         // UAC: re-runs this exe with `--vcable a,b RESULT.json`
 pub fn elevated_main(args: &[String]) -> i32;
 
-// winutil.rs – autostart (HKCU Run "DeskEchoGuard", value `"<exe>" --autostart`),
-// single instance (named mutex Local\DeskEchoGuard.SingleInstance), refresh_autostart()
+// winutil.rs – autostart (Task Scheduler logon task "DeskEchoGuard", `"<exe>" --autostart`
+// at priority 3; a leftover HKCU Run "DeskEchoGuard" is migrated by refresh_autostart()),
+// single instance (named mutex Local\DeskEchoGuard.SingleInstance)
 // selftest.rs – `--self-test [report.txt]`, same checks as selftest.py
 ```
 
