@@ -13,7 +13,7 @@
 //!   * `devices` -> `backend.list_devices()`
 //!   * `cable_*` -> `vcable::{status, display_name, resolve, ROLES, run_elevated}`
 //!   * `calibrate` -> `core::calibrate(&s, backend, 4.0, level_db, log)`
-//!   * `autostart*` -> `winutil` (HKCU Run "DeskEchoGuard")
+//!   * `autostart*` -> `winutil` (Task Scheduler logon task "DeskEchoGuard")
 //!   * `load_settings` / `save_settings` / `default_config_path` -> core settings
 
 use std::path::{Path, PathBuf};
