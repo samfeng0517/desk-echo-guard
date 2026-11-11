@@ -6,6 +6,7 @@ pub mod delay_line;
 pub mod elastic;
 pub mod filters;
 pub mod guard;
+pub mod heysiri;
 pub mod metrics;
 pub mod nlms;
 pub mod notch;
@@ -16,6 +17,7 @@ pub use delay_est::estimate_delay_ms;
 pub use delay_line::DelayLine;
 pub use elastic::{Clock, ElasticBuffer, ElasticOptions, ElasticStats};
 pub use guard::{GuardConfig, GuardMode, SibilantDetector, SiriGuard};
+pub use heysiri::{HeySiriDetector, HeySiriStats};
 pub use metrics::{band_energy_db, best_lag, db, energy, erle_db};
 pub use nlms::Nlms16k;
 pub use notch::{

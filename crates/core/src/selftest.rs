@@ -72,6 +72,19 @@ fn dsp_checks(lines: &mut Vec<String>) -> Result<bool> {
         "{} siri sibilant mode latency: {ms:.1} ms",
         mark(good)
     ));
+    // heysiri mode: same latency, and its embedded network loads and runs
+    let mut heysiri = make_guard(&Settings {
+        siri_mode: "heysiri".into(),
+        ..Default::default()
+    })?;
+    let y = heysiri.process_signal(&x, FRAME);
+    let good = heysiri.latency() == sibilant.latency() && y.iter().all(|v| v.is_finite());
+    ok &= good;
+    lines.push(format!(
+        "{} siri heysiri mode: {} region(s) in synthetic speech",
+        mark(good),
+        heysiri.detections()
+    ));
     Ok(ok)
 }
 

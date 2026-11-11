@@ -85,6 +85,10 @@ cargo run --release -p desk-echo-guard -- --screenshot docs/images
 - 用模擬引擎（不需要音效裝置）、軟體繪圖，把每一頁的淺色 / 深色、提示框、InfoBar、對話框範例存成 PNG。
 - Linux 和 Windows 都能跑。
 
+## 「Hey Siri」偵測模型
+
+`heysiri` 模式用的模型權重是 `crates/dsp/src/heysiri.bin`（編進 exe）。要重新訓練見 [tools/heysiri](../tools/heysiri/README.md)；平常開發不需要。
+
 ## 圖示
 
 修改 `tools/make_icon.py` 後執行它（需要 Python 和 Pillow），會重新產生 `assets/icon.ico` 和 `assets/icon.png`。`icon.ico` 會在編譯時嵌進 exe。

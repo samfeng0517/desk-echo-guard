@@ -1,4 +1,4 @@
-import { ComboBox, Switch } from "std-widgets.slint";
+import { ComboBox, Slider, Switch } from "std-widgets.slint";
 import { Theme, Icons } from "../theme.slint";
 import { Tips } from "../tips.slint";
 import { Tip, Card, SettingsCard, RadioOption, LinkText, FluentIcon, Caption, InfoBar } from "../controls.slint";
@@ -6,12 +6,10 @@ import { AppState, Cfg, Links } from "../state.slint";
 import { Page, Section } from "page.slint";
 
 export global SiriText {
-    out property <[string]> profiles: ["標準（推薦）", "輕微", "較淺", "加強"];
+    out property <[string]> profiles: ["標準（推薦）", "加強"];
     out property <[string]> profile-desc: [
-        "削掉 Siri 最在意的整段高音（2.8–6.5 kHz），這段擋得最徹底；但子音也在這段，對方說話會比較不清楚。聽不清楚時改用「輕微」。",
-        "仿照 Apple 發表會，只削幾個很窄的頻段。幾乎聽不出來，說話最清楚，但擋得比較少。",
-        "範圍和「標準」一樣，削得比較淺。子音一樣會比較不清楚。",
-        "再多削一段中音，最有效，但對方聲音明顯變悶。建議搭配「只在「s」音時處理」。",
+        "削掉 1–6.5 kHz 的中高音（v0.4.6 起比以前多削 1–3 kHz）。對方的聲音會變悶；想讓平常的聲音不受影響，模式改用「只在「Hey Siri」時處理」。",
+        "削掉 0.5–8 kHz，幾乎只剩低音，很難聽懂。只建議搭配「只在「Hey Siri」時處理」或「只在「s」音時處理」。",
     ];
 }
 
@@ -133,8 +131,8 @@ export component SiriPage inherits Page {
             padding-left: 36px;
             spacing: 4px;
             RadioOption {
-                title: "一直處理（推薦）";
-                description: "聲音稍微悶一點，不會增加延遲。";
+                title: "一直處理";
+                description: "最保險，不會增加延遲；但對方的聲音會一直比較悶。";
                 tip: Tips.mode-always;
                 enabled: Cfg.siri-guard;
                 selected: Cfg.siri-mode-index == 0;
@@ -144,13 +142,24 @@ export component SiriPage inherits Page {
                 }
             }
             RadioOption {
-                title: "只在「s」音時處理";
-                description: "延遲只多約 0.06 秒（聽不出來）；其他有 /s/ 音的字也會被短暫處理。";
-                tip: Tips.mode-sibilant;
+                title: "只在「Hey Siri」時處理";
+                description: "聽到「Hey」接「s」音才處理，其他時候聲音不動；延遲只多約 0.06 秒。偶爾可能漏掉。";
+                tip: Tips.mode-heysiri;
                 enabled: Cfg.siri-guard;
                 selected: Cfg.siri-mode-index == 1;
                 clicked => {
                     Cfg.siri-mode-index = 1;
+                    Cfg.changed();
+                }
+            }
+            RadioOption {
+                title: "只在「s」音時處理";
+                description: "延遲只多約 0.06 秒（聽不出來）；其他有 /s/ 音的字也會被短暫處理。";
+                tip: Tips.mode-sibilant;
+                enabled: Cfg.siri-guard;
+                selected: Cfg.siri-mode-index == 2;
+                clicked => {
+                    Cfg.siri-mode-index = 2;
                     Cfg.changed();
                 }
             }
@@ -170,6 +179,71 @@ export component SiriPage inherits Page {
             current-index <=> Cfg.siri-profile-index;
             selected => {
                 Cfg.changed();
+            }
+        }
+    }
+
+    // ---- ducking (uses the same wiring: the call audio runs through us)
+    Section {
+        text: "對方說話時";
+    }
+    SettingsCard {
+        icon: Icons.speaker-edit;
+        title: "降低其他聲音的音量";
+        description: "對方說話時，自動把影片、音樂、遊戲等其他程式調小聲，說完約 1 秒後恢復。需要上面的「啟用」打開。";
+        tip: Tips.duck-others;
+        enabled: Cfg.siri-guard;
+        Tip {
+            tip: Tips.duck-others;
+            focused: duck-sw.has-focus;
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: Cfg.duck-others ? "開啟" : "關閉";
+                    font-size: Theme.body;
+                    color: Cfg.siri-guard ? Theme.text : Theme.text-disabled;
+                    vertical-alignment: center;
+                }
+                duck-sw := Switch {
+                    enabled: Cfg.siri-guard;
+                    checked <=> Cfg.duck-others;
+                    toggled => {
+                        Cfg.changed();
+                    }
+                }
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.options;
+        title: "降低多少";
+        description: "100% 是完全靜音，0% 是不降低。";
+        tip: Tips.duck-percent;
+        enabled: Cfg.siri-guard && Cfg.duck-others;
+        Tip {
+            tip: Tips.duck-percent;
+            focused: duck.has-focus;
+            HorizontalLayout {
+                spacing: 12px;
+                duck := Slider {
+                    width: 180px;
+                    enabled: Cfg.siri-guard && Cfg.duck-others;
+                    minimum: 0;
+                    maximum: 100;
+                    step: 5;
+                    value <=> Cfg.duck-percent;
+                    changed(v) => {
+                        Cfg.changed();
+                    }
+                }
+                Text {
+                    width: 52px;
+                    text: round(Cfg.duck-percent) + "%";
+                    font-size: Theme.body;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                }
             }
         }
     }

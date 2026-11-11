@@ -1,5 +1,6 @@
 //! Settings, pipeline, calibration, VB-Cable; see `DESIGN.md` (echoguard-core).
 
+pub mod duck;
 pub mod pipeline;
 pub mod selftest;
 pub mod settings;

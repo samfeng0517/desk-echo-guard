@@ -131,10 +131,10 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub siri_guard: bool,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["sibilant", "always"])]
+          value_parser = ["heysiri", "sibilant", "always"])]
     pub siri_mode: Option<String>,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["deep-wide", "apple-deep", "apple-wide", "formant"])]
+          value_parser = ["deep-wide", "formant"])]
     pub siri_profile: Option<String>,
     #[arg(
         long,
@@ -142,6 +142,14 @@ pub struct Cli {
         allow_negative_numbers = true
     )]
     pub siri_depth_db: Option<f64>,
+
+    /// while the call partner speaks, lower the other programs' volume
+    /// (needs --siri-guard)
+    #[arg(long, help_heading = "Hey Siri anti-trigger")]
+    pub duck_others: bool,
+    /// how much to lower them, in percent (default 60)
+    #[arg(long, help_heading = "Hey Siri anti-trigger")]
+    pub duck_percent: Option<f64>,
 
     // ---- debug / offline
     /// directory to dump mic/ref/out wavs on exit
@@ -271,11 +279,15 @@ pub fn make_settings(cli: &Cli) -> Result<Settings> {
         max_ppm,
         blocksize
     );
-    set!(siri_mode, siri_profile, stats_interval_s);
+    set!(siri_mode, siri_profile, stats_interval_s, duck_percent);
     set_opt!(mic, speaker, siri_depth_db, debug_wav);
     if cli.siri_guard {
         s.siri_guard = true;
     }
+    if cli.duck_others {
+        s.duck_others = true;
+    }
+    s.duck_percent = s.duck_percent.clamp(0.0, 100.0);
     Ok(s)
 }
 
@@ -455,7 +467,7 @@ mod tests {
         let st = make_settings(&parse(&["--config", cfg.to_str().unwrap()])).unwrap();
         assert!(st.siri_guard);
         assert_eq!(st.siri_mode, "sibilant");
-        assert_eq!(st.siri_profile, "apple-deep");
+        assert_eq!(st.siri_profile, "deep-wide");
     }
 
     #[test]

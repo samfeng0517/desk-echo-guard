@@ -14,31 +14,27 @@ use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use crate::filters::{irfft, rfft};
 use crate::FS;
 
-/// Stop-band profiles.  "apple-deep" uses the frequencies reported for WWDC
-/// 2026 (depth not public); "deep-wide" (the default) cuts the whole
-/// 2.8-6.5 kHz range as deep as apple-deep.
-pub const PROFILES: &[&str] = &["deep-wide", "apple-deep", "apple-wide", "formant"];
+/// Stop-band profiles.  "deep-wide" (the default) removes 1.0-6.5 kHz: the
+/// 3-6 kHz range reported for WWDC 2026 plus the 1-3 kHz formant range,
+/// without which the notch did not stop a real device (nor open wake-word
+/// models).  "formant" removes 0.5-8 kHz, leaving little more than the
+/// pitch; meant for the modes that only process the wake phrase.
+pub const PROFILES: &[&str] = &["deep-wide", "formant"];
 pub const DEFAULT_PROFILE: &str = "deep-wide";
-/// Names from older versions, still accepted in saved settings.
-pub const LEGACY_PROFILES: &[(&str, &str)] = &[("apple", DEFAULT_PROFILE)];
-
-fn apple_bands(width: f64) -> Vec<(f64, f64)> {
-    [3000.0, 4000.0, 5000.0, 6000.0]
-        .iter()
-        .map(|c| (c - width / 2.0, c + width / 2.0))
-        .collect()
-}
+/// Names from older versions, still accepted in saved settings: the
+/// shallower profiles ("apple": 3/4/5/6 kHz at 30 dB, "apple-deep": the same
+/// at 70 dB, "apple-wide": 2.8-6.5 kHz at 50 dB) did not stop real devices
+/// and were removed (0.3.1, 0.4.6).
+pub const LEGACY_PROFILES: &[(&str, &str)] = &[
+    ("apple", DEFAULT_PROFILE),
+    ("apple-deep", DEFAULT_PROFILE),
+    ("apple-wide", DEFAULT_PROFILE),
+];
 
 fn profile_params(name: &str) -> Option<(Vec<(f64, f64)>, f64)> {
     Some(match name {
-        "deep-wide" => (vec![(2800.0, 6500.0)], 70.0),
-        "apple-deep" => (apple_bands(400.0), 70.0),
-        "apple-wide" => (vec![(2800.0, 6500.0)], 50.0),
-        "formant" => {
-            let mut b = vec![(1000.0, 3000.0)];
-            b.extend(apple_bands(400.0));
-            (b, 70.0)
-        }
+        "deep-wide" => (vec![(1000.0, 6500.0)], 70.0),
+        "formant" => (vec![(500.0, 8000.0)], 70.0),
         _ => return None,
     })
 }
@@ -374,8 +370,11 @@ mod tests {
             assert!((h[k] - w).abs() < 1e-12, "tap {k}: {} vs {w}", h[k]);
             assert!((h[30 - k] - w).abs() < 1e-12, "tap {}", 30 - k);
         }
-        // default profile, a few taps (scipy 1.18)
-        let h = design_notch_fir(&NotchConfig::default());
+        // the 0.4.5 default profile, a few taps (scipy 1.18)
+        let h = design_notch_fir(&NotchConfig {
+            bands: vec![(2800.0, 6500.0)],
+            ..NotchConfig::default()
+        });
         for (k, w) in [
             (0, 2.5251750059845363e-07),
             (1, 1.2738297315566367e-07),
@@ -387,7 +386,17 @@ mod tests {
         ] {
             assert!((h[k] - w).abs() < 1e-12, "tap {k}: {} vs {w}", h[k]);
         }
-        let h = design_notch_fir(&NotchConfig::profile("formant", None).unwrap());
+        // the 0.4.5 formant profile
+        let h = design_notch_fir(&NotchConfig {
+            bands: vec![
+                (1000.0, 3000.0),
+                (2800.0, 3200.0),
+                (3800.0, 4200.0),
+                (4800.0, 5200.0),
+                (5800.0, 6200.0),
+            ],
+            ..NotchConfig::default()
+        });
         for (k, w) in [
             (0, 4.091919164489445e-07),
             (7, -1.3239382626348216e-07),
@@ -417,7 +426,7 @@ mod tests {
                 }
             }
             // pass band untouched (< 0.5 dB) well away from every stop band
-            for f in [200.0, 500.0, 7500.0, 10000.0] {
+            for f in [100.0, 200.0, 500.0, 7500.0, 10000.0] {
                 if cfg
                     .bands
                     .iter()
@@ -469,9 +478,12 @@ mod tests {
 
     #[test]
     fn legacy_apple_profile_maps_to_default() {
-        let a = NotchConfig::profile("apple", None).unwrap();
-        assert_eq!(a, NotchConfig::profile("deep-wide", None).unwrap());
-        assert_eq!(a, NotchConfig::default());
+        for old in ["apple", "apple-deep", "apple-wide"] {
+            let a = NotchConfig::profile(old, None).unwrap();
+            assert_eq!(a, NotchConfig::profile("deep-wide", None).unwrap());
+            assert_eq!(a, NotchConfig::default());
+        }
+        assert_eq!(NotchConfig::default().bands, vec![(1000.0, 6500.0)]);
         assert!(NotchConfig::profile("nope", None).is_err());
         assert_eq!(
             NotchConfig::profile("formant", Some(40.0))

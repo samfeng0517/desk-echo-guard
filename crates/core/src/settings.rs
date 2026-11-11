@@ -14,9 +14,9 @@ use toml::{Table, Value};
 
 use echoguard_dsp::DEFAULT_PROFILE;
 
-/// The legacy profile name "apple" maps to the default notch profile
-/// (`siri_guard.LEGACY_PROFILES`).
-const LEGACY_PROFILES: &[(&str, &str)] = &[("apple", DEFAULT_PROFILE)];
+/// Profile names of older versions map to the default notch profile
+/// (`echoguard_dsp::notch::LEGACY_PROFILES`).
+use echoguard_dsp::notch::LEGACY_PROFILES;
 
 /// `siri_mode` values from older versions: the wake-word `detect` mode was
 /// removed in 0.4.1; its files get the model-free `sibilant` mode.
@@ -59,11 +59,16 @@ pub struct Settings {
     pub siri_guard: bool,
     /// where Discord/LINE output arrives
     pub call_in: String,
-    /// always | sibilant | off
+    /// always | heysiri | sibilant | off
     pub siri_mode: String,
     pub siri_profile: String,
     pub siri_depth_db: Option<f64>,
     pub spk_buffer_ms: f64,
+    /// while the call partner speaks, turn the other programs down
+    /// (needs `siri_guard`: the call audio must run through this program)
+    pub duck_others: bool,
+    /// ... by this much (0 = not at all, 100 = muted)
+    pub duck_percent: f64,
     /// directory: dump mic/ref/out(/call) wavs
     pub debug_wav: Option<String>,
     pub debug_max_s: f64,
@@ -94,6 +99,8 @@ impl Default for Settings {
             siri_profile: DEFAULT_PROFILE.into(),
             siri_depth_db: None,
             spk_buffer_ms: 40.0,
+            duck_others: false,
+            duck_percent: 60.0,
             debug_wav: None,
             debug_max_s: 600.0,
             stats_interval_s: 5.0,
@@ -124,6 +131,8 @@ pub const FIELDS: &[&str] = &[
     "siri_profile",
     "siri_depth_db",
     "spk_buffer_ms",
+    "duck_others",
+    "duck_percent",
     "debug_wav",
     "debug_max_s",
     "stats_interval_s",
@@ -253,6 +262,8 @@ pub fn settings_from_table(t: &Table, strict: bool) -> Result<Settings> {
             }
             "siri_depth_db" => s.siri_depth_db = Some(as_f64(k, v)?),
             "spk_buffer_ms" => s.spk_buffer_ms = as_f64(k, v)?,
+            "duck_others" => s.duck_others = as_bool(k, v)?,
+            "duck_percent" => s.duck_percent = as_f64(k, v)?.clamp(0.0, 100.0),
             "debug_wav" => s.debug_wav = Some(as_str(k, v)?),
             "debug_max_s" => s.debug_max_s = as_f64(k, v)?,
             "stats_interval_s" => s.stats_interval_s = as_f64(k, v)?,
@@ -305,7 +316,7 @@ pub fn config_text(s: &Settings) -> String {
         vec!["# desk-echo-guard settings (written by the GUI; --config reads it too)".to_string()];
     let b = |v: bool| if v { "true" } else { "false" }.to_string();
     let opt = |v: &Option<String>| v.as_deref().map(toml_str);
-    let values: [(&str, Option<String>); 24] = [
+    let values: [(&str, Option<String>); 26] = [
         ("mic", opt(&s.mic)),
         ("speaker", opt(&s.speaker)),
         ("out", Some(toml_str(&s.out))),
@@ -327,6 +338,8 @@ pub fn config_text(s: &Settings) -> String {
         ("siri_profile", Some(toml_str(&s.siri_profile))),
         ("siri_depth_db", s.siri_depth_db.map(toml_f64)),
         ("spk_buffer_ms", Some(toml_f64(s.spk_buffer_ms))),
+        ("duck_others", Some(b(s.duck_others))),
+        ("duck_percent", Some(toml_f64(s.duck_percent))),
         ("debug_wav", opt(&s.debug_wav)),
         ("debug_max_s", Some(toml_f64(s.debug_max_s))),
         ("stats_interval_s", Some(toml_f64(s.stats_interval_s))),
@@ -366,14 +379,14 @@ mod tests {
         // tests/test_cli.py::test_config_file_and_cli_override (file part)
         let t = parse_config(
             "mic = \"USB\"\ndelay-ms = 40\n[siri]\nsiri_mode = \"always\"\n\
-             siri-profile = \"apple-deep\"\n",
+             siri-profile = \"formant\"\n",
         )
         .unwrap();
         let s = settings_from_table(&t, true).unwrap();
         assert_eq!(s.mic.as_deref(), Some("USB"));
         assert_eq!(s.delay_ms, 40.0);
         assert_eq!(s.siri_mode, "always");
-        assert_eq!(s.siri_profile, "apple-deep");
+        assert_eq!(s.siri_profile, "formant");
         assert_eq!(s.out, "CABLE Input");
     }
 
@@ -412,14 +425,15 @@ mod tests {
 
     #[test]
     fn defaults_text_matches_python() {
-        // what `cli.save_config(path, Settings())` writes
+        // what `cli.save_config(path, Settings())` writes, plus the 0.4.6
+        // ducking keys
         let expected = "# desk-echo-guard settings (written by the GUI; --config reads it too)\n\
 out = \"CABLE Input\"\nengine = \"auto\"\nnoise_suppression = true\nhigh_pass = true\n\
 agc = false\nfilter_ms = 300\ndelay_ms = 0.0\nmic_delay_ms = 0.0\noutput_gain_db = 0.0\n\
 ref_buffer_ms = 20.0\nout_buffer_ms = 40.0\nmax_ppm = 1000.0\nblocksize = 480\n\
 siri_guard = false\ncall_in = \"CABLE-A Output\"\nsiri_mode = \"always\"\n\
-siri_profile = \"deep-wide\"\nspk_buffer_ms = 40.0\ndebug_max_s = 600.0\n\
-stats_interval_s = 5.0\n";
+siri_profile = \"deep-wide\"\nspk_buffer_ms = 40.0\nduck_others = false\n\
+duck_percent = 60.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
         assert_eq!(config_text(&Settings::default()), expected);
     }
 
@@ -482,7 +496,7 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
             blocksize: 960,
             siri_guard: true,
             siri_mode: "sibilant".into(),
-            siri_profile: "apple-deep".into(),
+            siri_profile: "formant".into(),
             siri_depth_db: Some(-45.0),
             debug_wav: Some("C:\\tmp\\wav".into()),
             ..Settings::default()

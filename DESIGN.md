@@ -82,8 +82,8 @@ pub fn estimate_delay_ms(reference: &[f32], mic: &[f32], max_delay_ms: f64,
 pub struct NotchConfig { pub bands: Vec<(f64, f64)>, pub depth_db: f64,
                          pub transition_hz: f64, pub numtaps: usize }
 impl NotchConfig { pub fn profile(name: &str, depth_db: Option<f64>) -> anyhow::Result<Self>; }
-pub const PROFILES: &[&str] = &["deep-wide", "apple-deep", "apple-wide", "formant"];
-pub const DEFAULT_PROFILE: &str = "deep-wide";   // legacy "apple" maps to it
+pub const PROFILES: &[&str] = &["deep-wide", "formant"];   // 1-6.5 kHz / 0.5-8 kHz since 0.4.6
+pub const DEFAULT_PROFILE: &str = "deep-wide";   // legacy "apple", "apple-deep", "apple-wide" map to it
 pub fn design_notch_fir(cfg: &NotchConfig) -> Vec<f64>;
 pub struct NotchBank;  new(cfg); process(&mut self, x: &[f32], out: &mut [f32]); delay()
 
@@ -93,7 +93,11 @@ pub trait Detector: Send {   // regions in absolute input-sample indices
     fn report_delay(&self) -> usize;  // worst case: region start .. start of the reporting block
 }
 pub struct SibilantDetector;                    // impl Detector; report_delay = FRAME - 1 + pre
-pub enum GuardMode { Always, Sibilant, Off }    // FromStr / as_str ("detect" removed in 0.4.1)
+pub enum GuardMode { Always, Sibilant, HeySiri, Off }   // FromStr / as_str ("detect" removed in 0.4.1)
+// heysiri.rs (0.4.6, no Python counterpart): /s/ onset gated by three small CNNs
+pub struct SibilantFrame;                       // per-frame /s/ decision shared with SibilantDetector
+pub struct MelFrontend;                         // 32 log-mel bands, 10 ms hop
+pub struct HeySiriDetector;                     // impl Detector; same report_delay; stats()
 pub struct GuardConfig { pub mode: GuardMode, pub ramp_ms: f64, pub notch: NotchConfig }
 pub struct SiriGuard;
 impl SiriGuard {
@@ -219,7 +223,7 @@ impl EchoGuard {
 }
 pub fn run_blocking(s: &Settings, backend, duration_s: Option<f64>, log) -> Result<()>; // CLI loop + Ctrl+C
 pub fn calibrate(s: &Settings, backend, seconds: f64, level_db: f64, log) -> Result<(f64, f64)>;
-pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // sibilant, always
+pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // heysiri, sibilant, always
 
 // vcable.rs (vcable.py) – pure role logic + Windows endpoint ops
 pub struct Role { pub key: &'static str, pub kind: DeviceKind, pub original: &'static str, pub renamed: &'static str }
@@ -264,6 +268,25 @@ pub fn elevated_main(args: &[String]) -> i32;
   is still in the buffer (counted by `clamped()`, 0 in normal operation).
   The wake-word `detect` mode (1 s lookahead, `echoguard-wakeword`) was
   removed in 0.4.1.
+* `heysiri` mode (0.4.6) = the sibilant trigger gated by `HeySiriDetector`:
+  at an /s/ onset a CNN over the previous 0.4 s of log-mel frames decides
+  whether it follows "hey" (the notch opens for 0.13 s, same lookahead as
+  sibilant); 0.12 s and 0.25 s after the onset two more CNNs decide whether
+  it still sounds like "hey si" / "hey sir" and extend the region (to
+  0.26 s, then the full 0.45 s) or let it end.  A region that starts where
+  another one ends is a continuation and not counted as a detection.  The
+  weights (`crates/dsp/src/heysiri.bin`, embedded) come from
+  `tools/heysiri` (synthetic "hey siri", real Mandarin / English negatives).
+* Ducking (0.4.6, `core/src/duck.rs`, no Python counterpart): with
+  `duck_others` and the Siri guard on, the guard thread stamps the time the
+  call input was last above -45 dBFS RMS; a 20 ms control thread
+  (`DuckControl`: 0.8 s hold, 50 ms attack, 350 ms release) scales the
+  session volume of every other process on the speaker endpoint
+  (`IAudioSessionManager2` / `ISimpleAudioVolume`) to `1 - duck_percent/100`
+  and restores it on release, stop and drop.  Original volumes are also
+  noted in `%TEMP%\DeskEchoGuard-ducked-volumes.txt` and put back at the
+  next start if the process died while ducked.  A mixer error ends only the
+  ducker thread.
 * Pipeline levels: exponential average (a = 0.05) of per-frame dB, start at
   -120; mic clipping warning above 0.9 peak.
 * `vcable.resolve`: configured "CABLE Input" must keep working after rename.

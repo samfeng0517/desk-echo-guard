@@ -70,8 +70,9 @@ DeskEchoGuard.exe --help
 | `--filter-ms` | Speex / NLMS 濾波器長度（預設 300） |
 | `--ref-buffer-ms` / `--out-buffer-ms` | 參考 / 輸出緩衝（預設 20 / 40 ms） |
 | `--siri-guard` | 開 Hey Siri 防誤觸 |
-| `--siri-mode` | `always`（預設）/ `sibilant`（只在「s」音時處理，延遲約 0.07 秒） |
-| `--siri-profile` | `deep-wide`（預設）/ `apple-deep` / `apple-wide` / `formant` |
+| `--siri-mode` | `always`（預設）/ `heysiri`（聽到「Hey」接「s」音才處理，延遲約 0.07 秒）/ `sibilant`（只要有「s」音就處理，延遲約 0.07 秒） |
+| `--siri-profile` | `deep-wide`（標準，預設，削 1–6.5 kHz）/ `formant`（加強，削 0.5–8 kHz） |
+| `--duck-others` / `--duck-percent N` | 對方說話時把其他程式的音量降低 N%（預設 60；要搭配 `--siri-guard`） |
 | `--debug-wav DIR` | 結束時把 mic / ref / out / call 錄音存到資料夾（最多 10 分鐘） |
 | `--duration-s N` | N 秒後自動停止 |
 
@@ -99,7 +100,7 @@ DeskEchoGuard.exe --help
 :: 回聲消除：麥克風錄音 + 喇叭（參考）錄音 → 輸出
 DeskEchoGuard.exe --sim-mic debug\mic.wav --sim-ref debug\ref.wav --sim-out o.wav --engine speex
 :: Hey Siri 防誤觸：通話聲音 → 處理後
-DeskEchoGuard.exe --sim-guard-in call.wav --sim-guard-out call_guarded.wav --siri-mode always --siri-profile formant
+DeskEchoGuard.exe --sim-guard-in call.wav --sim-guard-out call_guarded.wav --siri-mode heysiri --siri-profile deep-wide
 ```
 
 ## 調校
