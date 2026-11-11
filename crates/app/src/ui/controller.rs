@@ -21,8 +21,8 @@ use crate::tray::{Tray, TrayCmd};
 use crate::{AppState, AppWindow, Cfg, DiagRow, InfoBarData, Severity, TipState};
 
 pub const ENGINES: [&str; 5] = ["auto", "webrtc", "speex", "nlms", "off"];
-pub const MODES: [&str; 3] = ["always", "heysiri", "sibilant"];
-pub const PROFILES: [&str; 2] = ["deep-wide", "formant"];
+pub const MODES: [&str; 2] = ["always", "heysiri"];
+pub const PROFILES: [&str; 2] = ["deep-wide", "early"];
 
 const LOG_LINES: usize = 300;
 const APPLY_DELAY: Duration = Duration::from_millis(800);

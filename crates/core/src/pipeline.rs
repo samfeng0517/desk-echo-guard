@@ -6,7 +6,7 @@
 //!     [physical mic] -----------> AEC ---out_buf--> [CABLE Input]  (Discord/LINE mic = CABLE Output)
 //!
 //!     (siri_guard)
-//!     [CABLE-A Output] --> SiriGuard (sibilant / heysiri: ~60 ms lookahead) --spk_buf--> [speakers]
+//!     [CABLE-A Output] --> SiriGuard (heysiri: 60 / 230 ms lookahead) --spk_buf--> [speakers]
 //!          ^ Discord/LINE output device = CABLE-A Input
 //! ```
 //!
@@ -29,7 +29,7 @@ use echoguard_aec::{make_engine, AecProcessor, EngineOptions};
 use echoguard_audio::{AudioBackend, DeviceKind, InputStream, OutputStream};
 use echoguard_dsp::{
     db, energy, estimate_delay_ms, Detector, ElasticBuffer, ElasticOptions, GuardConfig, GuardMode,
-    HeySiriDetector, NotchConfig, SibilantDetector, SiriGuard, FRAME, FS,
+    HeySiriDetector, NotchConfig, SiriGuard, DEFAULT_PROFILE, FRAME, FS,
 };
 use parking_lot::Mutex;
 use rand::SeedableRng;
@@ -415,12 +415,22 @@ fn aec_loop(
 
 // ----------------------------------------------------------------- pipeline
 
+/// `siri_profile` values: the default notch profile, and the same bands
+/// with the `heysiri` region reaching back over the "hey".
+pub const GUARD_PROFILES: &[&str] = &[DEFAULT_PROFILE, "early"];
+
 /// Build the Siri guard from the settings (`siri_guard.make_guard`):
-/// `sibilant` uses the built-in /s/ detector (lookahead derived from it),
-/// `heysiri` the /s/ detector gated by the "hey ... iri" network (same
-/// lookahead), `always` notches all the time.
+/// `always` notches all the time; `heysiri` runs the "hey s-iri" detector
+/// and notches from the /s/ on (profile `deep-wide`, ~60 ms lookahead) or
+/// from 0.2 s before it (profile `early`, ~230 ms lookahead).
 pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
-    let notch = NotchConfig::profile(&s.siri_profile, s.siri_depth_db)?;
+    let early = s.siri_profile == "early";
+    let bands = if early {
+        DEFAULT_PROFILE
+    } else {
+        &s.siri_profile
+    };
+    let notch = NotchConfig::profile(bands, s.siri_depth_db)?;
     let mode: GuardMode = s.siri_mode.parse()?;
     let cfg = GuardConfig {
         mode,
@@ -428,7 +438,7 @@ pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
         ..Default::default()
     };
     let det: Option<Box<dyn Detector>> = match mode {
-        GuardMode::Sibilant => Some(Box::new(SibilantDetector::default())),
+        GuardMode::HeySiri if early => Some(Box::new(HeySiriDetector::reaching_back())),
         GuardMode::HeySiri => Some(Box::new(HeySiriDetector::default())),
         GuardMode::Always | GuardMode::Off => None,
     };
@@ -825,15 +835,25 @@ mod tests {
         };
         let g = make_guard(&s).unwrap();
         assert!(g.latency() < FS / 10);
-        s.siri_mode = "sibilant".into();
+        s.siri_mode = "heysiri".into();
         let g = make_guard(&s).unwrap();
         assert!(
             g.latency() > 600 && g.latency() < FS / 10,
             "{}",
             g.latency()
         );
-        s.siri_mode = "detect".into(); // removed in 0.4.1 (settings map it)
-        assert!(make_guard(&s).is_err());
+        // "early": the same bands, the region reaches back over the "hey"
+        s.siri_profile = "early".into();
+        let e = make_guard(&s).unwrap();
+        assert_eq!(e.notch_config(), g.notch_config());
+        assert_eq!(e.latency(), g.latency() + FS * 17 / 100);
+        s.siri_mode = "always".into();
+        assert_eq!(make_guard(&s).unwrap().latency(), 600);
+        s.siri_profile = DEFAULT_PROFILE.into();
+        for removed in ["detect", "sibilant"] {
+            s.siri_mode = removed.into(); // the settings map them to heysiri
+            assert!(make_guard(&s).is_err());
+        }
         s.siri_mode = "bogus".into();
         assert!(make_guard(&s).is_err());
         s.siri_mode = "always".into();

@@ -41,9 +41,8 @@ export global Tips {
     out property <string> siri-docs: "在瀏覽器開啟 Hey Siri 防誤觸的詳細說明與實測結果。";
     out property <string> siri-mode: "什麼時候處理對方的聲音。「一直處理」最保險；覺得對方聲音太悶，再改「只在 Hey Siri 時處理」。";
     out property <string> mode-always: "一律處理對方的聲音，最保險，不會多出明顯的延遲；但對方的聲音會一直比較悶。";
-    out property <string> mode-heysiri: "聽到「Hey」後面接「s」音才開始處理；接下來不像「iri」就在 0.1–0.25 秒內停止。中文裡大部分的「s、ㄒ、ㄕ」音不會被處理到。只多約 0.06 秒延遲。辨識模型是用合成語音訓練的，偶爾可能漏掉；漏掉的話改用「只在 s 音時處理」。";
-    out property <string> mode-sibilant: "聽到「s」這類嘶聲才處理約半秒，平常聲音完全不動。只多約 0.06 秒延遲，聽不出來；缺點是其他有「s」音的字（例如「四、謝謝」）也會被短暫削掉高音。";
-    out property <string> siri-profile: "「標準」削掉 1–6.5 kHz，對方聲音會變悶。還是會被叫醒就改「加強」（幾乎只剩低音）。搭配「只在 Hey Siri 時處理」的模式，就只有那一小段會變悶。";
+    out property <string> mode-heysiri: "聽到「Hey」後面接「s」音才開始處理；接下來不像「iri」就在 0.1–0.25 秒內停止。中文裡大部分的「s、ㄒ、ㄕ」音不會被處理到。只多約 0.06 秒延遲。辨識模型是用合成語音訓練的，偶爾可能漏掉；而且只處理後半句，擋住的機會比「一直處理」低，想提高就把強度改「加強」。";
+    out property <string> siri-profile: "「標準」削掉 1–6.5 kHz。「加強」用在「只在 Hey Siri 時處理」：連前面的「Hey」一起削（偵測器只聽到前半句就可能觸發），代價是對方的聲音晚約 0.25 秒。";
     out property <string> duck-others: "看影片或聽音樂時聽不清楚朋友說話就打開。只會調小其他程式的音量（Windows 音量混音器），不會動對方的聲音；程式停止或關閉時會恢復原本的音量。";
     out property <string> duck-percent: "對方說話時，其他程式的音量要降低多少。例如 60% 表示降到原本的四成。";
     out property <string> copy-siri-name: "複製「Siri防護喇叭」這個名稱，貼到通話軟體的喇叭設定裡找。";

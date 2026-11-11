@@ -1,7 +1,6 @@
-//! "Hey Siri" detector for the Siri guard: the /s/ trigger of
-//! [`SibilantDetector`](crate::SibilantDetector), gated by a small neural
-//! network that looks at what came *before* the /s/ ("hey") and what follows
-//! it ("iri").
+//! "Hey Siri" detector for the Siri guard: a trigger on /s/-like onsets
+//! (high-band energy bursts), gated by a small neural network that looks at
+//! what came *before* the /s/ ("hey") and what follows it ("iri").
 //!
 //! The phrase cannot be recognised before it has been said, and waiting for
 //! its end would cost ~1 s of delay.  So the decision is split in stages
@@ -9,8 +8,11 @@
 //!
 //! * stage 0, at `f0`: do the last 0.4 s sound like "hey" followed by an
 //!   /s/?  Only then a (short) notch region is opened, from the /s/ onset
-//!   on.  The "hey" is already in the past, so this needs no more lookahead
-//!   than the plain sibilant mode.
+//!   on.  The "hey" is already in the past, so this only needs the
+//!   lookahead that covers the onset frame.  [`reaching_back`]
+//!   (HeySiriDetector::reaching_back) starts the region 0.2 s earlier, over
+//!   the "hey" itself, for a longer lookahead: wake-word models keep firing
+//!   when only the second half of the phrase is altered.
 //! * stage 1 and 2, 0.12 s and 0.25 s later: does it still sound like
 //!   "hey si-" / "hey sir-"?  If so the region is extended, else it ends
 //!   there ("hey Sam", 黑色 ... are released after 0.12-0.25 s).
@@ -63,8 +65,8 @@ const SIBILANT_SOS: [f64; 24] = [
     0.861393550246356,
 ];
 
-/// Per-frame /s/ decision: the 3.5-8 kHz band holds most of the frame's
-/// energy and is well above its running floor.
+/// Per-frame /s/ decision (10 ms frames): the 3.5-8 kHz band holds most of
+/// the frame's energy and is well above its running floor.
 pub struct SibilantFrame {
     ratio: f64,
     rise: f64,
@@ -109,16 +111,10 @@ impl SibilantFrame {
 }
 
 impl SibilantFrame {
-    /// Lower thresholds for the `heysiri` mode, where the network sorts out
-    /// the extra candidates: quiet or noisy /s/ sounds are still found.
+    /// Thresholds of the detector: low enough to find quiet or noisy /s/
+    /// sounds, the network sorts out the extra candidates.
     pub fn sensitive() -> Self {
         Self::new(0.35, 10.0, -65.0)
-    }
-}
-
-impl Default for SibilantFrame {
-    fn default() -> Self {
-        Self::new(0.5, 15.0, -55.0)
     }
 }
 
@@ -406,6 +402,13 @@ impl HeySiriDetector {
         }
     }
 
+    /// Like `default()`, but the region starts 0.2 s before the /s/ onset,
+    /// over the "hey" (median length in the training clips), at the price
+    /// of 0.17 s more lookahead.
+    pub fn reaching_back() -> Self {
+        Self::new(0.2, 0.45)
+    }
+
     /// Samples marked before the onset.
     pub fn pre(&self) -> i64 {
         self.pre
@@ -495,9 +498,11 @@ impl crate::Detector for HeySiriDetector {
         out
     }
 
-    /// Like [`SibilantDetector`](crate::SibilantDetector): the first region
-    /// starts `pre` before the onset frame and is reported with that frame's
-    /// last sample.  The follow-up regions start in the future.
+    /// The first region starts at frame `t` minus `pre` and is reported once
+    /// the frame's last sample `t + HOP - 1` has been fed; in the worst case
+    /// that sample is the first one of the block, so the region start lies
+    /// `HOP - 1 + pre` samples before the block start (independent of the
+    /// block size).  The follow-up regions start in the future.
     fn report_delay(&self) -> usize {
         HOP - 1 + self.pre.max(0) as usize
     }

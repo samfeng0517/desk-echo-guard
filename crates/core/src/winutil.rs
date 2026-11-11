@@ -247,7 +247,14 @@ mod imp {
     pub fn get_task_named(name: &str) -> Option<String> {
         let _com = Com::init();
         // SAFETY: plain COM calls on interfaces we own
-        let xml = unsafe { root_folder().ok()?.GetTask(&BSTR::from(name)).ok()?.Xml().ok()? };
+        let xml = unsafe {
+            root_folder()
+                .ok()?
+                .GetTask(&BSTR::from(name))
+                .ok()?
+                .Xml()
+                .ok()?
+        };
         Some(task_command(&xml.to_string()))
     }
 
@@ -402,7 +409,10 @@ mod tests {
         assert!(xml.contains(r"<UserId>PC\sam</UserId>"));
         assert_eq!(task_command(&xml), autostart_command_for(p));
         // a task another version wrote at the default priority is rewritten
-        assert_eq!(task_command(&xml.replace("<Priority>3<", "<Priority>7<")), "");
+        assert_eq!(
+            task_command(&xml.replace("<Priority>3<", "<Priority>7<")),
+            ""
+        );
     }
 
     #[cfg(windows)]
@@ -414,7 +424,10 @@ mod tests {
         imp::register_task_named(name, &xml).unwrap();
         let got = imp::get_task_named(name);
         imp::delete_task_named(name).unwrap();
-        assert_eq!(got.as_deref(), Some(r#""C:\x\DeskEchoGuard.exe" --autostart"#));
+        assert_eq!(
+            got.as_deref(),
+            Some(r#""C:\x\DeskEchoGuard.exe" --autostart"#)
+        );
         assert_eq!(imp::get_task_named(name), None);
         imp::delete_task_named(name).unwrap(); // already gone: not an error
     }

@@ -6,10 +6,10 @@ import { AppState, Cfg, Links } from "../state.slint";
 import { Page, Section } from "page.slint";
 
 export global SiriText {
-    out property <[string]> profiles: ["標準（推薦）", "加強"];
+    out property <[string]> profiles: ["標準", "加強"];
     out property <[string]> profile-desc: [
-        "削掉 1–6.5 kHz 的中高音（v0.4.6 起比以前多削 1–3 kHz）。對方的聲音會變悶；想讓平常的聲音不受影響，模式改用「只在「Hey Siri」時處理」。",
-        "削掉 0.5–8 kHz，幾乎只剩低音，很難聽懂。只建議搭配「只在「Hey Siri」時處理」或「只在「s」音時處理」。",
+        "削掉 1–6.5 kHz 的中高音，對方的聲音會變悶。模式是「只在「Hey Siri」時處理」時，從「Siri」的「s」音開始削。",
+        "只影響「只在「Hey Siri」時處理」：連前面的「Hey」一起削，比較擋得住；代價是對方的聲音會晚約 0.25 秒。「一直處理」時和標準一樣。",
     ];
 }
 
@@ -149,17 +149,6 @@ export component SiriPage inherits Page {
                 selected: Cfg.siri-mode-index == 1;
                 clicked => {
                     Cfg.siri-mode-index = 1;
-                    Cfg.changed();
-                }
-            }
-            RadioOption {
-                title: "只在「s」音時處理";
-                description: "延遲只多約 0.06 秒（聽不出來）；其他有 /s/ 音的字也會被短暫處理。";
-                tip: Tips.mode-sibilant;
-                enabled: Cfg.siri-guard;
-                selected: Cfg.siri-mode-index == 2;
-                clicked => {
-                    Cfg.siri-mode-index = 2;
                     Cfg.changed();
                 }
             }

@@ -17,24 +17,25 @@ use crate::FS;
 /// Stop-band profiles.  "deep-wide" (the default) removes 1.0-6.5 kHz: the
 /// 3-6 kHz range reported for WWDC 2026 plus the 1-3 kHz formant range,
 /// without which the notch did not stop a real device (nor open wake-word
-/// models).  "formant" removes 0.5-8 kHz, leaving little more than the
-/// pitch; meant for the modes that only process the wake phrase.
-pub const PROFILES: &[&str] = &["deep-wide", "formant"];
+/// models).
+pub const PROFILES: &[&str] = &["deep-wide"];
 pub const DEFAULT_PROFILE: &str = "deep-wide";
 /// Names from older versions, still accepted in saved settings: the
 /// shallower profiles ("apple": 3/4/5/6 kHz at 30 dB, "apple-deep": the same
 /// at 70 dB, "apple-wide": 2.8-6.5 kHz at 50 dB) did not stop real devices
-/// and were removed (0.3.1, 0.4.6).
+/// and were removed (0.3.1, 0.4.6); "formant" (0.4.5: 1-3 kHz + the narrow
+/// bands) is contained in the default.  The guard's own "early" profile
+/// (same bands, see `echoguard_core::make_guard`) is not a notch profile.
 pub const LEGACY_PROFILES: &[(&str, &str)] = &[
     ("apple", DEFAULT_PROFILE),
     ("apple-deep", DEFAULT_PROFILE),
     ("apple-wide", DEFAULT_PROFILE),
+    ("formant", DEFAULT_PROFILE),
 ];
 
 fn profile_params(name: &str) -> Option<(Vec<(f64, f64)>, f64)> {
     Some(match name {
         "deep-wide" => (vec![(1000.0, 6500.0)], 70.0),
-        "formant" => (vec![(500.0, 8000.0)], 70.0),
         _ => return None,
     })
 }
@@ -478,7 +479,7 @@ mod tests {
 
     #[test]
     fn legacy_apple_profile_maps_to_default() {
-        for old in ["apple", "apple-deep", "apple-wide"] {
+        for old in ["apple", "apple-deep", "apple-wide", "formant"] {
             let a = NotchConfig::profile(old, None).unwrap();
             assert_eq!(a, NotchConfig::profile("deep-wide", None).unwrap());
             assert_eq!(a, NotchConfig::default());
@@ -486,7 +487,7 @@ mod tests {
         assert_eq!(NotchConfig::default().bands, vec![(1000.0, 6500.0)]);
         assert!(NotchConfig::profile("nope", None).is_err());
         assert_eq!(
-            NotchConfig::profile("formant", Some(40.0))
+            NotchConfig::profile("deep-wide", Some(40.0))
                 .unwrap()
                 .depth_db,
             40.0

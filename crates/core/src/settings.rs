@@ -14,13 +14,19 @@ use toml::{Table, Value};
 
 use echoguard_dsp::DEFAULT_PROFILE;
 
-/// Profile names of older versions map to the default notch profile
-/// (`echoguard_dsp::notch::LEGACY_PROFILES`).
-use echoguard_dsp::notch::LEGACY_PROFILES;
+/// Profile names of older versions: the weaker notch profiles map to the
+/// default one, the former "strong" profile to today's (`early`).
+const LEGACY_PROFILES: &[(&str, &str)] = &[
+    ("apple", DEFAULT_PROFILE),
+    ("apple-deep", DEFAULT_PROFILE),
+    ("apple-wide", DEFAULT_PROFILE),
+    ("formant", "early"),
+];
 
 /// `siri_mode` values from older versions: the wake-word `detect` mode was
-/// removed in 0.4.1; its files get the model-free `sibilant` mode.
-const LEGACY_MODES: &[(&str, &str)] = &[("detect", "sibilant")];
+/// removed in 0.4.1 and the any-/s/ `sibilant` mode in 0.4.6; their files
+/// get the `heysiri` mode.
+const LEGACY_MODES: &[(&str, &str)] = &[("detect", "heysiri"), ("sibilant", "heysiri")];
 
 /// Keys of removed settings (the `detect` mode, removed in 0.4.1).  Files
 /// written by older versions contain them, so they are accepted and ignored
@@ -59,7 +65,7 @@ pub struct Settings {
     pub siri_guard: bool,
     /// where Discord/LINE output arrives
     pub call_in: String,
-    /// always | heysiri | sibilant | off
+    /// always | heysiri | off
     pub siri_mode: String,
     pub siri_profile: String,
     pub siri_depth_db: Option<f64>,
@@ -379,14 +385,14 @@ mod tests {
         // tests/test_cli.py::test_config_file_and_cli_override (file part)
         let t = parse_config(
             "mic = \"USB\"\ndelay-ms = 40\n[siri]\nsiri_mode = \"always\"\n\
-             siri-profile = \"formant\"\n",
+             siri-profile = \"early\"\n",
         )
         .unwrap();
         let s = settings_from_table(&t, true).unwrap();
         assert_eq!(s.mic.as_deref(), Some("USB"));
         assert_eq!(s.delay_ms, 40.0);
         assert_eq!(s.siri_mode, "always");
-        assert_eq!(s.siri_profile, "formant");
+        assert_eq!(s.siri_profile, "early");
         assert_eq!(s.out, "CABLE Input");
     }
 
@@ -468,14 +474,14 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
         let t = parse_config(&old).unwrap();
         for strict in [true, false] {
             let s = settings_from_table(&t, strict).unwrap();
-            assert_eq!(s.siri_mode, "sibilant");
+            assert_eq!(s.siri_mode, "heysiri");
             assert!(s.siri_guard);
             // saving drops the legacy keys
             let text = config_text(&s);
             assert!(LEGACY_KEYS.iter().all(|k| !text.contains(k)), "{text}");
         }
         let t = parse_config("siri_mode = \"Detect\"\nsiri_model = \"x.onnx\"\n").unwrap();
-        assert_eq!(settings_from_table(&t, true).unwrap().siri_mode, "sibilant");
+        assert_eq!(settings_from_table(&t, true).unwrap().siri_mode, "heysiri");
     }
 
     #[test]
@@ -495,8 +501,8 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
             max_ppm: 1e20,
             blocksize: 960,
             siri_guard: true,
-            siri_mode: "sibilant".into(),
-            siri_profile: "formant".into(),
+            siri_mode: "heysiri".into(),
+            siri_profile: "early".into(),
             siri_depth_db: Some(-45.0),
             debug_wav: Some("C:\\tmp\\wav".into()),
             ..Settings::default()

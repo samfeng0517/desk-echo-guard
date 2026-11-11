@@ -201,7 +201,8 @@ def main():
             p1 = p0 & passed[1]
             p2 = p1 & passed[2]
             notch = (p0.sum() - p1.sum()) * 0.15 + (p1.sum() - p2.sum()) * 0.28 + p2.sum() * 0.48
-            # plain sibilant mode: 0.48 s per onset, 0.25 s refractory
+            # for comparison, a trigger on every /s/ (the former sibilant mode):
+            # 0.48 s per onset, 0.25 s refractory
             sib = 0
             for c in clips:
                 last = -1e9
@@ -211,7 +212,7 @@ def main():
                         sib += 1
             line += (f" | other /s/ onsets {int(neg.sum())}: stage0 {int(p0.sum())}, stage1 {int(p1.sum())},"
                      f" stage2 {int(p2.sum())}; notched {100 * notch / secs:.2f}% of the time"
-                     f" (sibilant mode {100 * min(1.0, sib * 0.48 / secs):.0f}%)")
+                     f" (every /s/: {100 * min(1.0, sib * 0.48 / secs):.0f}%)")
         hard = sel & (y[:, 0] == -1) & (y[:, 2] == 0)
         if hard.any():
             line += (f" | 'hey s-other' {int(hard.sum())}: stage0 {int((hard & passed[0]).sum())},"

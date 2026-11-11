@@ -12,31 +12,32 @@
 
 ## 怎麼選
 
-**陷波強度（profile）**
+**強度（profile）**
 
-| 設定 | 削掉的頻帶 | 深度 | 聽感 |
-|---|---|---|---|
-| `deep-wide`（標準，預設） | 1.0–6.5 kHz 整段 | 70 dB | 明顯變悶，聽得懂 |
-| `formant`（加強） | 0.5–8 kHz 整段 | 70 dB | 幾乎只剩低音，很難聽懂；搭配 `heysiri` / `sibilant` 用 |
+| 設定 | 做什麼 | 聽感 |
+|---|---|---|
+| `deep-wide`（標準，預設） | 削掉 1.0–6.5 kHz 整段，70 dB | 明顯變悶，聽得懂 |
+| `early`（加強） | 頻帶同上；`heysiri` 模式時處理區段往前 0.2 秒，涵蓋「Hey」 | 同上；對方聲音晚約 0.24 秒 |
 
-- v0.4.5 以前的 `deep-wide` 是 2.8–6.5 kHz，`formant` 是 1–3 kHz 加 3/4/5/6 kHz 四個窄帶。實機用 `always` + 舊 `deep-wide` 仍會被叫醒，所以 v0.4.6 把兩者都加強（[依據](#要削哪一段v046-的強度是怎麼定的)）。
-- 比舊 `deep-wide` 還弱的 `apple-deep`（3/4/5/6 kHz 窄帶，70 dB）、`apple-wide`（2.8–6.5 kHz，50 dB）、`apple`（窄帶，30 dB）都已移除，設定檔裡的舊名稱會自動改用 `deep-wide`。
+- v0.4.5 以前的 `deep-wide` 是 2.8–6.5 kHz。實機用 `always` + 舊 `deep-wide` 仍會被叫醒，所以 v0.4.6 加寬到 1 kHz（[依據](#要削哪一段v046-的強度是怎麼定的)）。
+- 已移除的設定：`apple`（3/4/5/6 kHz 窄帶，30 dB）、`apple-deep`（同頻帶 70 dB）、`apple-wide`（2.8–6.5 kHz，50 dB）都比舊 `deep-wide` 還弱；舊 `formant`（1–3 kHz + 窄帶）已包含在新 `deep-wide` 裡。設定檔裡的前三個會改用 `deep-wide`，`formant` 會改用 `early`。
 
 **模式**
 
 | 模式 | 什麼時候處理 | 通話多出的延遲 |
 |---|---|---|
 | `always`（預設） | 一律處理 | 約 12.5 ms |
-| `heysiri`（v0.4.6） | /s/ 音開頭、而且前面像「Hey」才處理；之後不像「iri」就在 0.13–0.26 s 內停止，否則處理 0.45 s | 約 72.5 ms |
-| `sibilant` | 偵測到 /s/ 音後處理 0.45 s，其他含 s 的字也會被處理到 | 約 72.5 ms |
+| `heysiri`（v0.4.6） | /s/ 音開頭、而且前面像「Hey」才處理；之後不像「iri」就在 0.13–0.26 s 內停止，否則處理 0.45 s | 約 72.5 ms（`early` 約 242.5 ms） |
 
-v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到整句「Hey Siri」才處理）：整句講完才觸發，所以對方聲音要晚約 1 秒，而且沒有可用的「Hey Siri」模型。`heysiri` 模式改成「聽到開頭就先處理、不像再放開」，不需要多等。舊設定檔的 `siri_mode = "detect"` 會自動改成 `sibilant`，`siri_model` / `siri_threshold` / `siri_lookahead_s` 會被忽略。
+- v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到整句「Hey Siri」才處理）：整句講完才觸發，所以對方聲音要晚約 1 秒，而且沒有可用的「Hey Siri」模型。`heysiri` 模式改成「聽到開頭就先處理、不像再放開」，不需要多等。
+- v0.4.6 移除了 `sibilant` 模式（只要有 /s/ 音就處理 0.45 s）：中文裡 /s/ 類的音太多，真人中文朗讀有約 19% 的時間被處理。
+- 舊設定檔的 `siri_mode = "detect"` / `"sibilant"` 會自動改成 `heysiri`，`siri_model` / `siri_threshold` / `siri_lookahead_s` 會被忽略。
 
 **建議**
 
 1. 先用預設的 `always` + `deep-wide`，拿另一台裝置播「Hey Siri」影片，確認 HomePod / iPhone 不會被叫醒。
 2. 覺得整通電話都悶：模式改 `heysiri`，只有「Hey Siri」那半秒會被處理。
-3. 還會被叫醒：強度改 `formant`（搭配 `heysiri` 或 `sibilant`）。`heysiri` 漏掉太多次的話改 `sibilant`。
+3. `heysiri` 還會被叫醒：強度改 `early`（連「Hey」一起處理），或改回 `always`。
 
 ## Apple 怎麼做：研究摘要
 
@@ -82,25 +83,24 @@ v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到整句�
 - **Siri 偵測器的公開資料**：16 kHz 取樣、mel 濾波器組（[2017](https://machinelearning.apple.com/research/hey-siri)）；2023 年的架構是 DNN-HMM 第一關（7 個音素、21 個狀態）→ conformer 檢查器 → 說話者辨識 → 整句的誤觸發抑制（[Voice Trigger System for Siri](https://machinelearning.apple.com/research/voice-trigger)）。差一點觸發時，裝置會在接下來幾秒變得比較敏感，所以「擋下一半、對方再說一次」仍可能觸發。
 - **只說「Siri」就能喚醒**目前只支援英文（美、英、加、澳）、法文、德文和中國大陸的普通話；台灣的國語和粵語不在清單裡，仍然要說「嘿 Siri」（[Apple 功能支援清單](https://www.apple.com/ios/feature-availability/)）。這是 `heysiri` 模式只認「Hey + Siri」的依據。
 - **對抗式擾動**：「Adversarial Music」（[NeurIPS 2019](https://arxiv.org/abs/1911.00126)）要先仿造出 Alexa 的模型才做得到；沒有找到能轉移到 Siri、又能撐過喇叭播放的通用擾動。即時的語音偽裝研究（[VoiceBlock](https://interactiveaudiolab.github.io/project/voiceblock.html)、[Neural Voice Camouflage](https://voicecamo.cs.columbia.edu/)）針對的是說話者辨識或語音辨識，不是喚醒詞。
-- **干擾訊號**：有研究指出只要 2 ms、時間點精準的干擾訊號就能讓喚醒詞偵測失效（[UCC, 2024](https://cora.ucc.ie/items/d7c76bc1-68cf-4273-9453-7528e0b34909)），但測了哪些偵測器不清楚，也沒有 Siri 的資料。這是之後可以試的方向（在「Siri」中間插入很短的靜音或雜訊）。
+- **干擾訊號**：有研究指出只要 2 ms、時間點精準的干擾訊號就能讓喚醒詞偵測失效（[UCC, 2024](https://cora.ucc.ie/items/d7c76bc1-68cf-4273-9453-7528e0b34909)），但測了哪些偵測器不清楚，也沒有 Siri 的資料。用開源偵測器試過在「Siri」中間插入短暫的靜音或雜訊，沒有效果（[實驗](#從哪裡開始處理比怎麼處理重要)）。
 - **現成的開放詞彙關鍵詞偵測**：sherpa-onnx 的 KWS 模型可以直接用文字指定關鍵詞、不用訓練，但判定延遲是 160–320 ms 加上整個詞的長度（[文件](https://k2-fsa.github.io/sherpa/onnx/kws/pretrained_models/index.html)），而且要帶 ONNX Runtime。沒有找到公開的「Hey Siri」預訓練模型，也沒有公開可用的真人「Hey Siri」錄音。
 
 ## 實作方式
 
-程式碼在 `crates/dsp/src/notch.rs`（陷波濾波器）、`crates/dsp/src/guard.rs`（SiriGuard、`sibilant` 偵測、時間控制）和 `crates/dsp/src/heysiri.rs`（`heysiri` 偵測）。v0.4.0 的 `crates/wakeword`（`detect` 模式的 openWakeWord 偵測器）已在 v0.4.1 移除。
+程式碼在 `crates/dsp/src/notch.rs`（陷波濾波器）、`crates/dsp/src/guard.rs`（SiriGuard、時間控制）和 `crates/dsp/src/heysiri.rs`（`heysiri` 偵測）。v0.4.0 的 `crates/wakeword`（`detect` 模式的 openWakeWord 偵測器）已在 v0.4.1 移除。
 
 **陷波濾波器**
 
 - 線性相位 FIR 多頻帶阻帶（1201 taps，群延遲 12.5 ms）。
 - 處理後的聲音和延遲後的原音逐樣本對齊，所以能用 `out = dry − m(t)·(dry − wet)` 平滑切換（預設 15 ms），不會有梳狀濾波的怪聲。
 
-**`sibilant` / `heysiri` 模式的時間控制**
+**`heysiri` 模式的時間控制**
 
 - 偵測器跑在**還沒延遲**的輸入上，通話聲音則延遲一小段（`lookahead`）。
-- 偵測器每 10 ms 一框；/s/ 開頭的那一框結束時觸發，標記的區段從「該框開頭往前 30 ms」開始。
+- 偵測器每 10 ms 一框；/s/ 開頭的那一框結束時觸發，標記的區段從「該框開頭往前 30 ms」開始（`early`：往前 200 ms）。
 - 所以 `lookahead` 只要涵蓋：框長 10 ms + 往前的 30 ms + 淡入 15 ms + 5 ms 餘裕 = 60 ms（由偵測器參數算出，和音訊區塊大小無關）。加上濾波器 12.5 ms，總延遲約 72.5 ms。這樣 /s/ 一開頭就已經被削，不會漏掉開頭。
-- `sibilant`：每個 /s/ 開頭都標記 0.45 s。
-- `heysiri`：見下一節。
+- `early`：10 + 200 + 15 + 5 = 230 ms，總延遲約 242.5 ms。
 
 ### `heysiri` 模式的偵測器
 
@@ -110,7 +110,7 @@ v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到整句�
   - **第 0 關（/s/ 開頭當下）**：前 0.4 秒像不像「Hey」加上 /s/ 的開頭？像就先開始處理 0.13 秒。「Hey」已經講完了，所以不用多等。
   - **第 1 關（0.12 秒後）**、**第 2 關（0.25 秒後）**：聽起來還像「Hey Si…」「Hey Sir…」嗎？像就把處理區段延長（到 0.26 秒、再到 0.45 秒），不像就讓它結束。
 - 每一關是一個小 CNN（32 個 mel 頻帶、10 ms 一框；兩層 1D 卷積加兩層全連接，約 1.6–2.2 萬個參數），三關合計約 230 KB，直接編進 exe，用純 Rust 計算，不需要 ONNX Runtime。
-- /s/ 的判斷比 `sibilant` 模式寬鬆（小聲、有雜訊的 /s/ 也算），多出來的候選交給模型篩掉。
+- /s/ 的判斷門檻設得寬鬆（小聲、有雜訊的 /s/ 也算），多出來的候選交給模型篩掉。
 
 **訓練資料**（全部公開）
 
@@ -129,7 +129,7 @@ v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到整句�
 | 「Hey Siri」：Amazon Polly 沒看過的 5 種聲音（190 段） | 84.7% |
 | 「Hey Siri」：Tigre `legacy-tts`（60 段，來源不明的舊式合成引擎，訓練完全沒看過） | 1.7% |
 | 以上合計（1,685 段） | 92.0%（其中 1.8% 是 /s/ 本身沒被偵測到） |
-| 真人中文朗讀（FLEURS 測試集，385 分鐘，18,937 個 /s/ 類開頭） | 9.9% 通過第 0 關（處理 0.13 秒就放開），0.3% 被完整處理；**處理時間占 1.4%**（`sibilant` 模式約 19%） |
+| 真人中文朗讀（FLEURS 測試集，385 分鐘，18,937 個 /s/ 類開頭） | 9.9% 通過第 0 關（處理 0.13 秒就放開），0.3% 被完整處理；**處理時間占 1.4%**（舊的 `sibilant` 模式約 19%；`early` 估計約 3%） |
 | 「Hey Sam」這類「Hey + 其他 s 開頭的字」（804 段） | 88% 通過第 0 關（預期如此），19% 被完整處理 |
 
 - 出貨的模型是把測試資料也加進去再訓練一次的版本；在驗證資料上「Hey Siri」96.1% 被完整處理，其他語音的處理時間占 0.9%。
@@ -190,14 +190,44 @@ v0.4.1 移除了 `detect` 模式（openWakeWord 喚醒詞模型偵測到整句�
 | 0.4–8 kHz | 0 / 36 | 0.00 | 0.85 |
 
 - 單獨削 1–2 kHz、2–3 kHz 或高音都沒什麼用；要把 **1–3 kHz 整段**拿掉才有效，再往上削到 6.5 kHz 幾乎不再多損失清晰度。
-- 所以新的 `deep-wide` 取 1.0–6.5 kHz（涵蓋舊 `deep-wide` 和舊 `formant`，分數降到 0）；新的 `formant` 取 0.5–8 kHz，當作最後手段。
+- 所以新的 `deep-wide` 取 1.0–6.5 kHz（涵蓋舊 `deep-wide` 和舊 `formant`，分數降到 0）。
 - 這只是**一個**開源偵測器的結果。Siri 的偵測器不公開，新強度在實機上的效果還沒測過。
-- Rust 版的量測（合成測試語音）：新 `deep-wide` 目標頻帶衰減 ≥ 40 dB，總能量 −0.4 dB，頻帶外頻譜不變；新 `formant` 總能量 −3.4 dB。
+- Rust 版的量測（合成測試語音）：新 `deep-wide` 目標頻帶衰減 ≥ 40 dB，總能量 −0.4 dB，頻帶外頻譜不變。
+
+### 從哪裡開始處理，比怎麼處理重要
+
+`heysiri` 模式只處理句子的後半（從「Siri」的 /s/ 開始）。這樣夠不夠？另外，有研究說很短的干擾就能讓偵測失效，能不能在「Siri」中間插入短暫的靜音或雜訊，取代整段削頻？用同一個 hey_jarvis 偵測器實驗：Piper 念「Hey Jarvis」，只處理片語的某個位置之後（以片語長度的百分比表示），看 30 段裡還有幾段觸發。
+
+| 處理方式 | 整句 | 從 25% | 從 40% | 從 55% |
+|---|---|---|---|---|
+| 削 1–6.5 kHz（`deep-wide`） | 0 | 0 | 9 | 24 |
+| 削 0.3–8 kHz | 0 | 0 | 1 | 24 |
+| **整段靜音** | 0 | 0 | 1 | **25** |
+| 每 50 ms 靜音 40 ms | 0 | 0 | 13 | 27 |
+| 換成雜訊 | 0 | 0 | 5 | 25 |
+| 只降 20 dB 音量 | 30 | 30 | 30 | 30 |
+
+只處理後半（從 50% 起）時，各種「短暫干擾」的結果（40 段）：
+
+| 處理方式 | 仍觸發 | STOI |
+|---|---|---|
+| 每 40 ms 靜音 5 或 10 ms | 40 / 40 | 0.98–0.99 |
+| 每 60 ms 靜音 20 ms | 39 / 40 | 0.98 |
+| 每 60 ms 靜音 30 ms | 38 / 40 | 0.96 |
+| 每 120 ms 靜音 60 ms | 37 / 40 | 0.95 |
+| 每 60 ms 換成 20 或 30 ms 雜訊 | 39–40 / 40 | 0.94–0.96 |
+| 每 20–60 ms 一段局部倒放 | 38–40 / 40 | 0.93–0.98 |
+| 削 1–6.5 kHz | 28 / 40 | 0.94 |
+
+- **在後半句插入短暫的靜音、雜訊或倒放，對這個偵測器幾乎沒有效果。** 即使把後半句整個靜音，多數仍會觸發：它聽到「Hey Jar…」就夠了。
+- **從哪裡開始處理才是關鍵**：同樣的 `deep-wide`，從 55% 開始幾乎沒用，從 40% 開始擋下七成，從 25% 開始全部擋下。
+- 「Hey Siri」的 /s/ 大約在片語的 30–40% 處，所以 `heysiri` + `deep-wide` 落在「有效但不保證」的區間。
+- 這是 `early`（加強）的依據：把處理區段往前拉 0.2 秒（訓練用的片語裡，/s/ 之前的「Hey」長度中位數約 0.25 秒，含片頭的空白），涵蓋「Hey」的元音，相當於從片語很前面開始處理。代價是延遲多 0.17 秒，因為「Hey」已經講完，只能靠把聲音延後來回頭處理。
+- 同樣要提醒：這只是一個開源偵測器，而且是「Hey Jarvis」不是「Hey Siri」。Siri 的第二關會檢查整句，可能比這個偵測器嚴格，也可能不是。
 
 ## 限制
 
 - Apple 的方法沒有公開。實機上只削 3 kHz 以上的設定（30 dB 窄帶、2.8–6.5 kHz 70 dB）都擋不住 HomePod / iPhone；v0.4.6 的新強度在實機上的效果**還沒實測**。
 - `heysiri` 的模型只用合成語音訓練，真人聲音的辨識率未知；只認「Hey／嘿 + Siri」，不認單獨的「Siri」。
-- `sibilant` 會處理到其他含 s 的字（每次約半秒）。
-- `heysiri` 和 `sibilant` 只在 /s/ 之後削；如果 Siri 的偵測器在 /s/ 之前（「Hey」）就已經認出來，這兩個模式擋不到。
-- `heysiri` / `sibilant` 的延遲約 72.5 ms（`always` 約 12.5 ms），對話時感覺不出來。
+- `heysiri` + `deep-wide` 只從 /s/ 開始削；偵測器如果聽前半句就夠了，會擋不住（見上一節）。`early` 往前涵蓋「Hey」，但延遲約 0.24 秒。
+- `heysiri` 的延遲約 72.5 ms（`always` 約 12.5 ms），對話時感覺不出來；`early` 的 0.24 秒在搶話時可能感覺得到。

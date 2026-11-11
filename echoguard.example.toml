@@ -20,7 +20,7 @@ mic_delay_ms = 0              # 只有 --calibrate 顯示參考訊號「晚到�
 [siri]
 siri_guard = false
 call_in = "CABLE-A Output"    # Discord/LINE 的「輸出裝置」設成 CABLE-A Input
-siri_mode = "always"          # always | heysiri（聽到「Hey」接「s」音才處理）| sibilant（有「s」音就處理）；後兩者延遲約 0.07 秒
-siri_profile = "deep-wide"    # deep-wide（標準，削 1–6.5 kHz）| formant（加強，削 0.5–8 kHz，搭配 heysiri / sibilant）
+siri_mode = "always"          # always | heysiri（聽到「Hey」接「s」音才處理，延遲約 0.07 秒）
+siri_profile = "deep-wide"    # deep-wide（標準，削 1–6.5 kHz）| early（加強：heysiri 模式連「Hey」一起削，延遲約 0.24 秒）
 duck_others = false           # 對方說話時降低其他程式的音量（需要 siri_guard = true）
 duck_percent = 60             # 降低多少 %（100 = 靜音）

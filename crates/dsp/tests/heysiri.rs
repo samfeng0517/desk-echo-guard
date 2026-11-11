@@ -2,8 +2,8 @@
 //! `fixtures/heysiri`, see the README there for their sources).
 
 use echoguard_dsp::{
-    band_energy_db, Detector, GuardConfig, GuardMode, HeySiriDetector, IntegerResampler,
-    SibilantDetector, SiriGuard, FS,
+    band_energy_db, Detector, GuardConfig, GuardMode, HeySiriDetector, IntegerResampler, SiriGuard,
+    FS,
 };
 
 /// A 16 kHz s16le fixture, upsampled to 48 kHz, with 0.5 s of silence
@@ -50,16 +50,12 @@ fn covered(regions: &[(i64, i64)]) -> f64 {
     total as f64 / FS as f64
 }
 
-fn guard(mode: GuardMode) -> SiriGuard {
-    let det: Box<dyn Detector> = match mode {
-        GuardMode::HeySiri => Box::new(HeySiriDetector::default()),
-        _ => Box::new(SibilantDetector::default()),
-    };
+fn guard(det: HeySiriDetector) -> SiriGuard {
     let cfg = GuardConfig {
-        mode,
+        mode: GuardMode::HeySiri,
         ..Default::default()
     };
-    SiriGuard::new(cfg, Some(det)).unwrap()
+    SiriGuard::new(cfg, Some(Box::new(det))).unwrap()
 }
 
 const HEY_SIRI: [&str; 4] = ["hey_siri_1", "hey_siri_2", "hey_siri_3", "hey_siri_4"];
@@ -79,7 +75,7 @@ fn hey_siri_is_notched_from_the_s_on() {
         assert!((secs - 0.48).abs() < 1e-6, "{name}: {secs}");
         assert_eq!(end - start, (0.48 * FS as f64) as i64, "{name}");
 
-        let mut g = guard(GuardMode::HeySiri);
+        let mut g = guard(HeySiriDetector::default());
         let y = g.process_signal(&x, 480);
         assert_eq!(g.detections(), 1, "{name}");
         assert_eq!(g.clamped(), 0, "{name}");
@@ -101,21 +97,43 @@ fn hey_siri_is_notched_from_the_s_on() {
     }
 }
 
+/// The "early" profile: the region also covers the 0.2 s before the /s/.
+#[test]
+fn reaching_back_also_notches_the_hey() {
+    for name in HEY_SIRI {
+        let x = clip(name);
+        let mut plain = HeySiriDetector::default();
+        let from_s = regions(&mut plain, &x, 480);
+        let mut det = HeySiriDetector::reaching_back();
+        let regs = regions(&mut det, &x, 480);
+        assert_eq!(det.stats(), plain.stats(), "{name}");
+        let onset = from_s.iter().map(|r| r.0).min().unwrap() + plain.pre();
+        let start = regs.iter().map(|r| r.0).min().unwrap();
+        assert_eq!(onset - start, (0.2 * FS as f64) as i64, "{name}");
+        assert!((covered(&regs) - 0.65).abs() < 1e-6, "{name}");
+
+        let mut g = guard(HeySiriDetector::reaching_back());
+        let y = g.process_signal(&x, 480);
+        assert_eq!((g.detections(), g.clamped()), (1, 0), "{name}");
+        // the 0.15 s before the /s/ (the vowel of "hey") lost its 1.2-3 kHz
+        let (a, b) = (onset as usize - FS * 15 / 100, onset as usize);
+        let drop =
+            band_energy_db(&x[a..b], 1200.0, 3000.0) - band_energy_db(&y[a..b], 1200.0, 3000.0);
+        println!("[metrics] heysiri_early[{name}]: hey_band_drop_dB={drop:.1}");
+        assert!(drop > 20.0, "{name}: {drop}");
+    }
+}
+
 #[test]
 fn mandarin_speech_is_left_alone() {
     let x = clip("mandarin");
     let secs = x.len() as f64 / FS as f64;
-    let sib = covered(&regions(&mut SibilantDetector::default(), &x, 480));
     let mut det = HeySiriDetector::default();
     let hey = covered(&regions(&mut det, &x, 480));
     let st = det.stats();
-    println!(
-        "[metrics] heysiri[mandarin]: seconds={secs:.1}, sibilant_mode_notched_s={sib:.2}, \
-         heysiri_mode_notched_s={hey:.2}, {st:?}"
-    );
-    // the plain /s/ trigger processes a good part of it, the gated one nothing
+    println!("[metrics] heysiri[mandarin]: seconds={secs:.1}, notched_s={hey:.2}, {st:?}");
+    // plenty of /s/-like onsets, none of them taken for "hey siri"
     assert!(st.onsets >= 10, "{st:?}");
-    assert!(sib > 0.15 * secs, "{sib}");
     assert_eq!(st.confirmed, 0, "{st:?}");
     assert!(hey < 0.02 * secs, "{hey}");
 }
@@ -129,7 +147,7 @@ fn regions_do_not_depend_on_the_block_size() {
     for block in [1usize, 7, 333, 479, 481, 1000, 4096] {
         let got = regions(&mut HeySiriDetector::default(), &x, block);
         assert_eq!(got, want, "block {block}");
-        let mut g = guard(GuardMode::HeySiri);
+        let mut g = guard(HeySiriDetector::default());
         let y = g.process_signal(&x, block);
         assert!(y.iter().all(|v| v.is_finite()));
         assert_eq!(g.clamped(), 0, "block {block}");
@@ -137,8 +155,7 @@ fn regions_do_not_depend_on_the_block_size() {
 }
 
 #[test]
-fn same_latency_as_sibilant_mode() {
-    let (a, b) = (guard(GuardMode::HeySiri), guard(GuardMode::Sibilant));
-    assert_eq!(a.latency(), b.latency());
-    assert!(a.latency() < FS / 10);
+fn latency() {
+    assert_eq!(guard(HeySiriDetector::default()).latency(), 3479); // 72.5 ms
+    assert_eq!(guard(HeySiriDetector::reaching_back()).latency(), 11639); // 242.5 ms
 }

@@ -82,8 +82,8 @@ pub fn estimate_delay_ms(reference: &[f32], mic: &[f32], max_delay_ms: f64,
 pub struct NotchConfig { pub bands: Vec<(f64, f64)>, pub depth_db: f64,
                          pub transition_hz: f64, pub numtaps: usize }
 impl NotchConfig { pub fn profile(name: &str, depth_db: Option<f64>) -> anyhow::Result<Self>; }
-pub const PROFILES: &[&str] = &["deep-wide", "formant"];   // 1-6.5 kHz / 0.5-8 kHz since 0.4.6
-pub const DEFAULT_PROFILE: &str = "deep-wide";   // legacy "apple", "apple-deep", "apple-wide" map to it
+pub const PROFILES: &[&str] = &["deep-wide"];   // 1-6.5 kHz since 0.4.6
+pub const DEFAULT_PROFILE: &str = "deep-wide";   // legacy "apple", "apple-deep", "apple-wide", "formant" map to it
 pub fn design_notch_fir(cfg: &NotchConfig) -> Vec<f64>;
 pub struct NotchBank;  new(cfg); process(&mut self, x: &[f32], out: &mut [f32]); delay()
 
@@ -92,12 +92,11 @@ pub trait Detector: Send {   // regions in absolute input-sample indices
     fn feed(&mut self, x: &[f32], start: i64) -> Vec<(i64, i64)>;
     fn report_delay(&self) -> usize;  // worst case: region start .. start of the reporting block
 }
-pub struct SibilantDetector;                    // impl Detector; report_delay = FRAME - 1 + pre
-pub enum GuardMode { Always, Sibilant, HeySiri, Off }   // FromStr / as_str ("detect" removed in 0.4.1)
+pub enum GuardMode { Always, HeySiri, Off }   // FromStr / as_str ("detect" removed in 0.4.1)
 // heysiri.rs (0.4.6, no Python counterpart): /s/ onset gated by three small CNNs
-pub struct SibilantFrame;                       // per-frame /s/ decision shared with SibilantDetector
+pub struct SibilantFrame;                       // per-frame /s/ decision
 pub struct MelFrontend;                         // 32 log-mel bands, 10 ms hop
-pub struct HeySiriDetector;                     // impl Detector; same report_delay; stats()
+pub struct HeySiriDetector;                     // impl Detector; default() / reaching_back(); stats()
 pub struct GuardConfig { pub mode: GuardMode, pub ramp_ms: f64, pub notch: NotchConfig }
 pub struct SiriGuard;
 impl SiriGuard {
@@ -223,7 +222,8 @@ impl EchoGuard {
 }
 pub fn run_blocking(s: &Settings, backend, duration_s: Option<f64>, log) -> Result<()>; // CLI loop + Ctrl+C
 pub fn calibrate(s: &Settings, backend, seconds: f64, level_db: f64, log) -> Result<(f64, f64)>;
-pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // heysiri, sibilant, always
+pub const GUARD_PROFILES: &[&str] = &["deep-wide", "early"];   // siri_profile values
+pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // heysiri (early: reaching back), always
 
 // vcable.rs (vcable.py) – pure role logic + Windows endpoint ops
 pub struct Role { pub key: &'static str, pub kind: DeviceKind, pub original: &'static str, pub renamed: &'static str }
@@ -261,17 +261,18 @@ pub fn elevated_main(args: &[String]) -> i32;
   damped PI controller, anti-windup only while not underrunning, hard resync,
   re-prime after a long producer stall, underrun keeps the read position
   advancing (see the docstring in `buffers.py`).
-* SiriGuard always mode = notch only, no lookahead; sibilant = lookahead
+* SiriGuard always mode = notch only, no lookahead; heysiri = lookahead
   derived from the detector (`report_delay` 479 + 1440 samples + 15 ms ramp
   + 5 ms margin = 60 ms; total latency 72.5 ms, independent of the block
-  size), cross-fade mask with raised-cosine ramps, regions clamped to what
+  size; with `siri_profile = "early"` the region starts 0.2 s before the
+  /s/ instead of 30 ms: lookahead 230 ms, latency 242.5 ms), cross-fade mask with raised-cosine ramps, regions clamped to what
   is still in the buffer (counted by `clamped()`, 0 in normal operation).
   The wake-word `detect` mode (1 s lookahead, `echoguard-wakeword`) was
-  removed in 0.4.1.
-* `heysiri` mode (0.4.6) = the sibilant trigger gated by `HeySiriDetector`:
+  removed in 0.4.1, the any-/s/ `sibilant` mode (`SibilantDetector`) in
+  0.4.6.
+* `heysiri` mode (0.4.6) = an /s/-onset trigger gated by `HeySiriDetector`:
   at an /s/ onset a CNN over the previous 0.4 s of log-mel frames decides
-  whether it follows "hey" (the notch opens for 0.13 s, same lookahead as
-  sibilant); 0.12 s and 0.25 s after the onset two more CNNs decide whether
+  whether it follows "hey" (the notch opens for 0.13 s); 0.12 s and 0.25 s after the onset two more CNNs decide whether
   it still sounds like "hey si" / "hey sir" and extend the region (to
   0.26 s, then the full 0.45 s) or let it end.  A region that starts where
   another one ends is a continuation and not counted as a detection.  The
@@ -292,5 +293,6 @@ pub fn elevated_main(args: &[String]) -> i32;
 * `vcable.resolve`: configured "CABLE Input" must keep working after rename.
 * Settings file: missing keys take defaults; the 0.4.0 keys `siri_model`,
   `siri_threshold`, `siri_lookahead_s` are accepted and ignored (also in
-  strict mode) and no longer written; `siri_mode = "detect"` maps to
-  `sibilant`, like the legacy `apple` profile maps to `deep-wide`.
+  strict mode) and no longer written; `siri_mode = "detect"` and `"sibilant"`
+  map to `heysiri`; the legacy profiles `apple`, `apple-deep`, `apple-wide`
+  map to `deep-wide` and `formant` to `early`.

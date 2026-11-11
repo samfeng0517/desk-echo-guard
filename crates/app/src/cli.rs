@@ -131,10 +131,10 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub siri_guard: bool,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["heysiri", "sibilant", "always"])]
+          value_parser = ["heysiri", "always"])]
     pub siri_mode: Option<String>,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["deep-wide", "formant"])]
+          value_parser = ["deep-wide", "early"])]
     pub siri_profile: Option<String>,
     #[arg(
         long,
@@ -466,7 +466,7 @@ mod tests {
         .unwrap();
         let st = make_settings(&parse(&["--config", cfg.to_str().unwrap()])).unwrap();
         assert!(st.siri_guard);
-        assert_eq!(st.siri_mode, "sibilant");
+        assert_eq!(st.siri_mode, "heysiri");
         assert_eq!(st.siri_profile, "deep-wide");
     }
 
@@ -523,9 +523,9 @@ mod tests {
             "960",
             "--siri-guard",
             "--siri-mode",
-            "sibilant",
+            "heysiri",
             "--siri-profile",
-            "formant",
+            "early",
             "--siri-depth-db",
             "-30",
             "--debug-wav",
@@ -552,8 +552,8 @@ mod tests {
             max_ppm: 500.0,
             blocksize: 960,
             siri_guard: true,
-            siri_mode: "sibilant".into(),
-            siri_profile: "formant".into(),
+            siri_mode: "heysiri".into(),
+            siri_profile: "early".into(),
             siri_depth_db: Some(-30.0),
             debug_wav: Some("dbg".into()),
             stats_interval_s: 0.0,
@@ -578,6 +578,8 @@ mod tests {
             &["--engine", "foo"][..],
             &["--siri-mode", "never"],
             &["--siri-mode", "detect"],
+            &["--siri-mode", "sibilant"],
+            &["--siri-profile", "formant"],
             &["--siri-model", "a.onnx"],
             &["--siri-threshold", "0.5"],
             &["--siri-lookahead-s", "1"],
