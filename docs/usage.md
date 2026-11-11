@@ -71,7 +71,8 @@ DeskEchoGuard.exe --help
 | `--ref-buffer-ms` / `--out-buffer-ms` | 參考 / 輸出緩衝（預設 20 / 40 ms） |
 | `--siri-guard` | 開 Hey Siri 防誤觸 |
 | `--siri-mode` | `always`（預設）/ `heysiri`（聽到「Hey」接「s」音才處理，延遲約 0.07 秒） |
-| `--siri-profile` | `deep-wide`（標準，預設，削 1–6.5 kHz）/ `early`（加強：`heysiri` 模式連前面的「Hey」一起削，延遲約 0.24 秒） |
+| `--siri-profile` | `deep-wide`（標準，預設，削 1–6.5 kHz）/ `early`（加強：`heysiri` 模式一聽到「Hey」就先削） |
+| `--siri-test DIR` | 產生實機測試用的編號音檔、記錄表和答案到資料夾（[說明](siri-guard.md#怎麼測試有沒有用)）；`--siri-test-clip 錄音.wav`（可重複）加入自己錄的「Hey Siri」，`--siri-test-repeats N` 每種組合播幾次（預設 2） |
 | `--duck-others` / `--duck-percent N` | 對方說話時把其他程式的音量降低 N%（預設 60；要搭配 `--siri-guard`） |
 | `--debug-wav DIR` | 結束時把 mic / ref / out / call 錄音存到資料夾（最多 10 分鐘） |
 | `--duration-s N` | N 秒後自動停止 |

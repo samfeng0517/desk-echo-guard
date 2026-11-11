@@ -97,29 +97,36 @@ fn hey_siri_is_notched_from_the_s_on() {
     }
 }
 
-/// The "early" profile: the region also covers the 0.2 s before the /s/.
+/// The "early" profile: the "hey" stage opens the region before the /s/.
 #[test]
-fn reaching_back_also_notches_the_hey() {
+fn hey_first_also_notches_the_hey() {
     for name in HEY_SIRI {
         let x = clip(name);
         let mut plain = HeySiriDetector::default();
         let from_s = regions(&mut plain, &x, 480);
-        let mut det = HeySiriDetector::reaching_back();
+        let mut det = HeySiriDetector::hey_first();
         let regs = regions(&mut det, &x, 480);
-        assert_eq!(det.stats(), plain.stats(), "{name}");
+        let st = det.stats();
+        assert_eq!((st.heys, st.confirmed), (1, 1), "{name}: {st:?}");
+        // one continuous region that starts well before the /s/
         let onset = from_s.iter().map(|r| r.0).min().unwrap() + plain.pre();
         let start = regs.iter().map(|r| r.0).min().unwrap();
-        assert_eq!(onset - start, (0.2 * FS as f64) as i64, "{name}");
-        assert!((covered(&regs) - 0.65).abs() < 1e-6, "{name}");
+        let end = regs.iter().map(|r| r.1).max().unwrap();
+        let lead = (onset - start) as f64 / FS as f64;
+        assert!((0.05..0.4).contains(&lead), "{name}: {lead}");
+        assert!(
+            (covered(&regs) - (end - start) as f64 / FS as f64).abs() < 1e-6,
+            "{name}"
+        );
 
-        let mut g = guard(HeySiriDetector::reaching_back());
+        let mut g = guard(HeySiriDetector::hey_first());
         let y = g.process_signal(&x, 480);
         assert_eq!((g.detections(), g.clamped()), (1, 0), "{name}");
-        // the 0.15 s before the /s/ (the vowel of "hey") lost its 1.2-3 kHz
-        let (a, b) = (onset as usize - FS * 15 / 100, onset as usize);
+        // the last 60 ms before the /s/ (the end of "hey") lost their 1.2-3 kHz
+        let (a, b) = (onset as usize - FS * 6 / 100, onset as usize);
         let drop =
             band_energy_db(&x[a..b], 1200.0, 3000.0) - band_energy_db(&y[a..b], 1200.0, 3000.0);
-        println!("[metrics] heysiri_early[{name}]: hey_band_drop_dB={drop:.1}");
+        println!("[metrics] heysiri_early[{name}]: starts_s_before_the_s={lead:.2}, hey_band_drop_dB={drop:.1}");
         assert!(drop > 20.0, "{name}: {drop}");
     }
 }
@@ -136,6 +143,14 @@ fn mandarin_speech_is_left_alone() {
     assert!(st.onsets >= 10, "{st:?}");
     assert_eq!(st.confirmed, 0, "{st:?}");
     assert!(hey < 0.02 * secs, "{hey}");
+    // the "hey" stage fires rarely too
+    let mut early = HeySiriDetector::hey_first();
+    let t = covered(&regions(&mut early, &x, 480));
+    println!(
+        "[metrics] heysiri_early[mandarin]: notched_s={t:.2}, {:?}",
+        early.stats()
+    );
+    assert!(early.stats().heys <= 2 && t < 0.08 * secs, "{t}");
 }
 
 #[test]
@@ -157,5 +172,5 @@ fn regions_do_not_depend_on_the_block_size() {
 #[test]
 fn latency() {
     assert_eq!(guard(HeySiriDetector::default()).latency(), 3479); // 72.5 ms
-    assert_eq!(guard(HeySiriDetector::reaching_back()).latency(), 11639); // 242.5 ms
+    assert_eq!(guard(HeySiriDetector::hey_first()).latency(), 3479);
 }

@@ -138,8 +138,9 @@ the restore animation).
   處理，延遲只多約 0.06 秒）.  (The wake-word detect mode was removed in
   0.4.1, the any-/s/ sibilant mode in 0.4.6.)
 * 強度: combo box with descriptions — 標準 (deep-wide, 1–6.5 kHz) and 加強
-  (early: the same bands; in heysiri mode the "Hey" is processed too, for
-  about 0.25 s of delay; same as 標準 in always mode).
+  (early: the same bands; in heysiri mode the notch already opens during
+  the "Hey", which also makes 嘿 / 黑 sound muffled for a moment; same as
+  標準 in always mode).
 * Section 對方說話時: switch 降低其他聲音的音量 (off by default) and a
   0–100 % slider 降低多少 (default 60 %); both disabled while the guard is
   off, the slider also while the switch is off.

@@ -151,6 +151,17 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub duck_percent: Option<f64>,
 
+    /// write the files for a listening test on a real HomePod / iPhone
+    /// (numbered wavs, a record sheet and the answers) into DIR
+    #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "DIR")]
+    pub siri_test: Option<PathBuf>,
+    /// --siri-test: also use this recording of "Hey Siri" (wav; repeatable)
+    #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "WAV")]
+    pub siri_test_clip: Vec<PathBuf>,
+    /// --siri-test: how often each combination is played (default 2)
+    #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "N")]
+    pub siri_test_repeats: Option<usize>,
+
     // ---- debug / offline
     /// directory to dump mic/ref/out wavs on exit
     #[arg(long, help_heading = "debug / offline")]
@@ -330,6 +341,14 @@ pub fn run(cli: &Cli) -> Result<i32> {
         return Ok(0);
     }
 
+    if let Some(dir) = &cli.siri_test {
+        let n = crate::siritest::run(dir, &cli.siri_test_clip, cli.siri_test_repeats.unwrap_or(2))?;
+        println!(
+            "[siri-test] wrote {n} wav files, 說明與記錄表.txt and 答案.txt to {}",
+            dir.display()
+        );
+        return Ok(0);
+    }
     if let Some(input) = &cli.sim_guard_in {
         let Some(out) = &cli.sim_guard_out else {
             bail!("--sim-guard-in needs --sim-guard-out");

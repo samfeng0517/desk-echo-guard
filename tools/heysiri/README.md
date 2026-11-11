@@ -9,6 +9,7 @@
   - 階段 0：「s」音之前的 0.4 秒像不像「Hey」。
   - 階段 1、2：0.12 秒、0.25 秒後，聽起來還像不像「Hey Si…」「Hey Sir…」。
 - 資料依語者／語音／錄音分成訓練、驗證、測試三份；門檻設成驗證資料裡 98.5–99% 的「Hey Siri」會通過（但其他「s」音的通過率不超過 10% / 5% / 3%）。
+- 強度「加強」（`early`）多一關「Hey」（`train_hey.py` → `crates/dsp/src/heysiri_hey.bin`，約 48 KB）：每一框都算一次，判斷最近 0.25 秒是不是剛講到「Hey」的元音開頭；門檻設成驗證資料的其他語音每分鐘觸發 3 次。
 
 ## 資料（全部是公開資料，放在 `<workdir>/data`）
 
@@ -31,6 +32,8 @@ python -m venv venv && ./venv/bin/pip install numpy scipy soundfile "piper-tts[z
 cargo build --release -p echoguard-dsp --example heysiri_dump
 ./venv/bin/python train.py <workdir> target/release/examples/heysiri_dump /tmp/eval.bin        # 保留測試集、印出結果（約 15 分鐘）
 ./venv/bin/python train.py <workdir> target/release/examples/heysiri_dump crates/dsp/src/heysiri.bin --all   # 出貨用的模型
+./venv/bin/python train_hey.py <workdir> target/release/examples/heysiri_dump /tmp/hey_eval.bin              # 「Hey」那一關：保留測試集
+./venv/bin/python train_hey.py <workdir> target/release/examples/heysiri_dump crates/dsp/src/heysiri_hey.bin --all
 ```
 
 結果數字見 [docs/siri-guard-research.md](../../docs/siri-guard-research.md#heysiri-模式的偵測器)。

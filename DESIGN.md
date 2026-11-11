@@ -96,7 +96,7 @@ pub enum GuardMode { Always, HeySiri, Off }   // FromStr / as_str ("detect" remo
 // heysiri.rs (0.4.6, no Python counterpart): /s/ onset gated by three small CNNs
 pub struct SibilantFrame;                       // per-frame /s/ decision
 pub struct MelFrontend;                         // 32 log-mel bands, 10 ms hop
-pub struct HeySiriDetector;                     // impl Detector; default() / reaching_back(); stats()
+pub struct HeySiriDetector;                     // impl Detector; default() / hey_first(); stats()
 pub struct GuardConfig { pub mode: GuardMode, pub ramp_ms: f64, pub notch: NotchConfig }
 pub struct SiriGuard;
 impl SiriGuard {
@@ -223,7 +223,7 @@ impl EchoGuard {
 pub fn run_blocking(s: &Settings, backend, duration_s: Option<f64>, log) -> Result<()>; // CLI loop + Ctrl+C
 pub fn calibrate(s: &Settings, backend, seconds: f64, level_db: f64, log) -> Result<(f64, f64)>;
 pub const GUARD_PROFILES: &[&str] = &["deep-wide", "early"];   // siri_profile values
-pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // heysiri (early: reaching back), always
+pub fn make_guard(s: &Settings) -> Result<SiriGuard>;    // heysiri (early: with the "hey" stage), always
 
 // vcable.rs (vcable.py) – pure role logic + Windows endpoint ops
 pub struct Role { pub key: &'static str, pub kind: DeviceKind, pub original: &'static str, pub renamed: &'static str }
@@ -264,8 +264,7 @@ pub fn elevated_main(args: &[String]) -> i32;
 * SiriGuard always mode = notch only, no lookahead; heysiri = lookahead
   derived from the detector (`report_delay` 479 + 1440 samples + 15 ms ramp
   + 5 ms margin = 60 ms; total latency 72.5 ms, independent of the block
-  size; with `siri_profile = "early"` the region starts 0.2 s before the
-  /s/ instead of 30 ms: lookahead 230 ms, latency 242.5 ms), cross-fade mask with raised-cosine ramps, regions clamped to what
+  size), cross-fade mask with raised-cosine ramps, regions clamped to what
   is still in the buffer (counted by `clamped()`, 0 in normal operation).
   The wake-word `detect` mode (1 s lookahead, `echoguard-wakeword`) was
   removed in 0.4.1, the any-/s/ `sibilant` mode (`SibilantDetector`) in
@@ -275,7 +274,12 @@ pub fn elevated_main(args: &[String]) -> i32;
   whether it follows "hey" (the notch opens for 0.13 s); 0.12 s and 0.25 s after the onset two more CNNs decide whether
   it still sounds like "hey si" / "hey sir" and extend the region (to
   0.26 s, then the full 0.45 s) or let it end.  A region that starts where
-  another one ends is a continuation and not counted as a detection.  The
+  another one ends (or inside it) is a continuation and not counted as a
+  detection.  With `siri_profile = "early"` (`HeySiriDetector::hey_first`) a
+  fourth CNN runs on every frame over the last 0.25 s and opens a 0.36 s
+  region when they end 60-120 ms into the vowel of a "hey" (0.3 s
+  refractory; weights `heysiri_hey.bin` from `tools/heysiri/train_hey.py`),
+  so the notch starts about 0.1 s before the /s/ at the same latency.  The
   weights (`crates/dsp/src/heysiri.bin`, embedded) come from
   `tools/heysiri` (synthetic "hey siri", real Mandarin / English negatives).
 * Ducking (0.4.6, `core/src/duck.rs`, no Python counterpart): with

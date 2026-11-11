@@ -21,6 +21,7 @@ mod cli;
 mod core_engine;
 mod engine;
 mod mock;
+mod siritest;
 mod tray;
 mod ui;
 mod wav;

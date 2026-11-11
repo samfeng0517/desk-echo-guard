@@ -1,9 +1,8 @@
 //! "Hey Siri" anti-trigger processing for the call output
 //! (`siri_guard.SiriGuard` and the model-free /s/ detector).
 //!
-//! `heysiri` mode delays the stream by a short `lookahead` (60 ms, or
-//! 230 ms when the region reaches back over the "hey"; derived from the
-//! detector, see [`Detector::report_delay`]), runs the detector (an /s/
+//! `heysiri` mode delays the stream by a short `lookahead` (60 ms, derived
+//! from the detector, see [`Detector::report_delay`]), runs the detector (an /s/
 //! that follows "hey", see [`crate::heysiri`]) on the *undelayed* input, and when it fires ramps the mask `m(t)` to 1 over
 //! the reported region (whose start is still inside the delay buffer), then
 //! back to 0: `out = dry - m(t) * (dry - wet)`, with `wet` = the notched
@@ -236,8 +235,9 @@ impl SiriGuard {
                     if a - self.ramp < earliest {
                         self.clamped += 1;
                     }
-                    // a region that starts where another ends continues it
-                    let extends = self.regions.iter().any(|r| r.1 == a);
+                    // a region that starts inside (or at the end of) another
+                    // one continues it
+                    let extends = self.regions.iter().any(|r| r.0 <= a && a <= r.1);
                     let a = a.max(earliest);
                     if b > a {
                         self.regions.push((a, b));
@@ -386,7 +386,7 @@ mod tests {
         // frame - 1 + pre + ramp (15 ms) + 5 ms margin
         for (det, max_ms) in [
             (HeySiriDetector::default(), 80.0),
-            (HeySiriDetector::reaching_back(), 250.0),
+            (HeySiriDetector::hey_first(), 80.0),
         ] {
             let pre = det.pre() as usize;
             let g = heysiri_guard(det);
@@ -406,7 +406,7 @@ mod tests {
     fn heysiri_mode_on_speech_never_clamps() {
         let x = synth_speech(8.0, 9);
         for block in [480usize, 97, 1024] {
-            for det in [HeySiriDetector::default(), HeySiriDetector::reaching_back()] {
+            for det in [HeySiriDetector::default(), HeySiriDetector::hey_first()] {
                 let mut g = heysiri_guard(det);
                 let y = g.process_signal(&x, block);
                 assert!(y.iter().all(|v| v.is_finite()));

@@ -9,13 +9,17 @@
 //! * stage 0, at `f0`: do the last 0.4 s sound like "hey" followed by an
 //!   /s/?  Only then a (short) notch region is opened, from the /s/ onset
 //!   on.  The "hey" is already in the past, so this only needs the
-//!   lookahead that covers the onset frame.  [`reaching_back`]
-//!   (HeySiriDetector::reaching_back) starts the region 0.2 s earlier, over
-//!   the "hey" itself, for a longer lookahead: wake-word models keep firing
-//!   when only the second half of the phrase is altered.
+//!   lookahead that covers the onset frame.
 //! * stage 1 and 2, 0.12 s and 0.25 s later: does it still sound like
 //!   "hey si-" / "hey sir-"?  If so the region is extended, else it ends
 //!   there ("hey Sam", 黑色 ... are released after 0.12-0.25 s).
+//!
+//! Wake-word models keep firing when only the second half of the phrase is
+//! altered, so [`HeySiriDetector::hey_first`] adds a "hey" stage that runs on
+//! every frame: do the last 0.25 s end a few frames into the vowel of a
+//! "hey"?  It opens the region about 0.1 s before the /s/ and holds it for
+//! 0.35 s; the stages above take over when the /s/ arrives.  It fires a few
+//! times per minute on other speech (黑, 嘿, hey ...).
 //!
 //! The weights are trained on synthetic speech (see `tools/heysiri`).
 
@@ -217,6 +221,15 @@ pub fn normalize(win: &mut [f32]) {
 /// `"HSD1"`, then per stage `f32 threshold` and eight `u32 n, n × f32`
 /// tensors (conv1 w/b, conv2 w/b, fc1 w/b, fc2 w/b; PyTorch layouts).
 static WEIGHTS: &[u8] = include_bytes!("heysiri.bin");
+/// Weights of the "hey" stage, written by `tools/heysiri/train_hey.py`:
+/// `"HSH1"`, `f32 threshold` and the same eight tensors.
+static HEY_WEIGHTS: &[u8] = include_bytes!("heysiri_hey.bin");
+/// Frames the "hey" stage looks at (0.25 s).
+pub const HEY_FRAMES: usize = 25;
+/// Frames between two triggers of the "hey" stage.
+const HEY_REFRACTORY: i64 = 30;
+/// Frames a region opened by the "hey" stage lasts (waiting for the /s/).
+const HEY_HOLD: usize = 35;
 
 const C1: usize = 24;
 const C2: usize = 32;
@@ -336,6 +349,8 @@ impl Stage {
 /// Counters of a [`HeySiriDetector`], for tests and logs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HeySiriStats {
+    /// Triggers of the "hey" stage (0 unless [`HeySiriDetector::hey_first`]).
+    pub heys: u64,
     /// /s/ onsets seen.
     pub onsets: u64,
     /// ... of which the audio before sounded like "hey" (notch opened).
@@ -357,6 +372,8 @@ pub struct HeySiriDetector {
     sib: SibilantFrame,
     mel: MelFrontend,
     stages: [Stage; 3],
+    /// the every-frame "hey" stage and the frame it last fired at
+    hey: Option<(Stage, i64)>,
     /// the last `PRE_FRAMES + 1 + STAGE_POST[2]` feature frames
     hist: std::collections::VecDeque<[f32; NMEL]>,
     prev: bool,
@@ -392,6 +409,7 @@ impl HeySiriDetector {
             sib: SibilantFrame::sensitive(),
             mel: MelFrontend::new(),
             stages,
+            hey: None,
             hist: std::iter::repeat_n(silence, Self::HIST).collect(),
             prev: false,
             open: Vec::new(),
@@ -402,11 +420,18 @@ impl HeySiriDetector {
         }
     }
 
-    /// Like `default()`, but the region starts 0.2 s before the /s/ onset,
-    /// over the "hey" (median length in the training clips), at the price
-    /// of 0.17 s more lookahead.
-    pub fn reaching_back() -> Self {
-        Self::new(0.2, 0.45)
+    /// Like `default()`, plus the "hey" stage: the region opens while the
+    /// "hey" is being said (see the module docs).  Same lookahead.
+    pub fn hey_first() -> Self {
+        let mut buf = HEY_WEIGHTS;
+        assert_eq!(&buf[..4], b"HSH1", "heysiri_hey.bin: magic");
+        buf = &buf[4..];
+        let stage = Stage::parse(HEY_FRAMES, &mut buf);
+        assert!(buf.is_empty(), "heysiri_hey.bin: trailing data");
+        Self {
+            hey: Some((stage, i64::MIN / 2)),
+            ..Self::default()
+        }
     }
 
     /// Samples marked before the onset.
@@ -463,6 +488,16 @@ impl HeySiriDetector {
                 self.stats.confirmed += 1;
             }
             self.open.swap_remove(i);
+        }
+
+        if let Some((stage, last)) = self.hey.as_mut() {
+            if no - *last >= HEY_REFRACTORY
+                && stage.score(self.hist.iter().skip(Self::HIST - HEY_FRAMES)) >= stage.threshold
+            {
+                *last = no;
+                self.stats.heys += 1;
+                out.push((t - self.pre, t + ((HEY_HOLD + 1) * HOP) as i64));
+            }
         }
 
         if is_s && !self.prev {

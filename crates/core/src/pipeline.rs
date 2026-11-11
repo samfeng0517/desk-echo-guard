@@ -6,7 +6,7 @@
 //!     [physical mic] -----------> AEC ---out_buf--> [CABLE Input]  (Discord/LINE mic = CABLE Output)
 //!
 //!     (siri_guard)
-//!     [CABLE-A Output] --> SiriGuard (heysiri: 60 / 230 ms lookahead) --spk_buf--> [speakers]
+//!     [CABLE-A Output] --> SiriGuard (heysiri: ~60 ms lookahead) --spk_buf--> [speakers]
 //!          ^ Discord/LINE output device = CABLE-A Input
 //! ```
 //!
@@ -416,13 +416,13 @@ fn aec_loop(
 // ----------------------------------------------------------------- pipeline
 
 /// `siri_profile` values: the default notch profile, and the same bands
-/// with the `heysiri` region reaching back over the "hey".
+/// with the `heysiri` region already opening during the "hey".
 pub const GUARD_PROFILES: &[&str] = &[DEFAULT_PROFILE, "early"];
 
 /// Build the Siri guard from the settings (`siri_guard.make_guard`):
 /// `always` notches all the time; `heysiri` runs the "hey s-iri" detector
-/// and notches from the /s/ on (profile `deep-wide`, ~60 ms lookahead) or
-/// from 0.2 s before it (profile `early`, ~230 ms lookahead).
+/// and notches from the /s/ on (profile `deep-wide`) or already from the
+/// "hey" (profile `early`); ~60 ms lookahead either way.
 pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
     let early = s.siri_profile == "early";
     let bands = if early {
@@ -438,7 +438,7 @@ pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
         ..Default::default()
     };
     let det: Option<Box<dyn Detector>> = match mode {
-        GuardMode::HeySiri if early => Some(Box::new(HeySiriDetector::reaching_back())),
+        GuardMode::HeySiri if early => Some(Box::new(HeySiriDetector::hey_first())),
         GuardMode::HeySiri => Some(Box::new(HeySiriDetector::default())),
         GuardMode::Always | GuardMode::Off => None,
     };
@@ -842,11 +842,11 @@ mod tests {
             "{}",
             g.latency()
         );
-        // "early": the same bands, the region reaches back over the "hey"
+        // "early": the same bands and latency, the "hey" stage is on
         s.siri_profile = "early".into();
         let e = make_guard(&s).unwrap();
         assert_eq!(e.notch_config(), g.notch_config());
-        assert_eq!(e.latency(), g.latency() + FS * 17 / 100);
+        assert_eq!(e.latency(), g.latency());
         s.siri_mode = "always".into();
         assert_eq!(make_guard(&s).unwrap().latency(), 600);
         s.siri_profile = DEFAULT_PROFILE.into();
