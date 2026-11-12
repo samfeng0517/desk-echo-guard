@@ -75,6 +75,10 @@ pub struct Settings {
     pub duck_others: bool,
     /// ... by this much (0 = not at all, 100 = muted)
     pub duck_percent: f64,
+    /// while a voice typing program records, send silence to the call
+    pub dictation_mute: bool,
+    /// ... these programs (exe names, separated by commas)
+    pub dictation_apps: String,
     /// directory: dump mic/ref/out(/call) wavs
     pub debug_wav: Option<String>,
     pub debug_max_s: f64,
@@ -107,6 +111,8 @@ impl Default for Settings {
             spk_buffer_ms: 40.0,
             duck_others: false,
             duck_percent: 60.0,
+            dictation_mute: false,
+            dictation_apps: crate::dictation::DEFAULT_APPS.into(),
             debug_wav: None,
             debug_max_s: 600.0,
             stats_interval_s: 5.0,
@@ -139,6 +145,8 @@ pub const FIELDS: &[&str] = &[
     "spk_buffer_ms",
     "duck_others",
     "duck_percent",
+    "dictation_mute",
+    "dictation_apps",
     "debug_wav",
     "debug_max_s",
     "stats_interval_s",
@@ -270,6 +278,8 @@ pub fn settings_from_table(t: &Table, strict: bool) -> Result<Settings> {
             "spk_buffer_ms" => s.spk_buffer_ms = as_f64(k, v)?,
             "duck_others" => s.duck_others = as_bool(k, v)?,
             "duck_percent" => s.duck_percent = as_f64(k, v)?.clamp(0.0, 100.0),
+            "dictation_mute" => s.dictation_mute = as_bool(k, v)?,
+            "dictation_apps" => s.dictation_apps = as_str(k, v)?,
             "debug_wav" => s.debug_wav = Some(as_str(k, v)?),
             "debug_max_s" => s.debug_max_s = as_f64(k, v)?,
             "stats_interval_s" => s.stats_interval_s = as_f64(k, v)?,
@@ -322,7 +332,7 @@ pub fn config_text(s: &Settings) -> String {
         vec!["# desk-echo-guard settings (written by the GUI; --config reads it too)".to_string()];
     let b = |v: bool| if v { "true" } else { "false" }.to_string();
     let opt = |v: &Option<String>| v.as_deref().map(toml_str);
-    let values: [(&str, Option<String>); 26] = [
+    let values: [(&str, Option<String>); 28] = [
         ("mic", opt(&s.mic)),
         ("speaker", opt(&s.speaker)),
         ("out", Some(toml_str(&s.out))),
@@ -346,6 +356,8 @@ pub fn config_text(s: &Settings) -> String {
         ("spk_buffer_ms", Some(toml_f64(s.spk_buffer_ms))),
         ("duck_others", Some(b(s.duck_others))),
         ("duck_percent", Some(toml_f64(s.duck_percent))),
+        ("dictation_mute", Some(b(s.dictation_mute))),
+        ("dictation_apps", Some(toml_str(&s.dictation_apps))),
         ("debug_wav", opt(&s.debug_wav)),
         ("debug_max_s", Some(toml_f64(s.debug_max_s))),
         ("stats_interval_s", Some(toml_f64(s.stats_interval_s))),
@@ -432,14 +444,15 @@ mod tests {
     #[test]
     fn defaults_text_matches_python() {
         // what `cli.save_config(path, Settings())` writes, plus the 0.4.6
-        // ducking keys
+        // ducking and 0.4.7 voice typing keys
         let expected = "# desk-echo-guard settings (written by the GUI; --config reads it too)\n\
 out = \"CABLE Input\"\nengine = \"auto\"\nnoise_suppression = true\nhigh_pass = true\n\
 agc = false\nfilter_ms = 300\ndelay_ms = 0.0\nmic_delay_ms = 0.0\noutput_gain_db = 0.0\n\
 ref_buffer_ms = 20.0\nout_buffer_ms = 40.0\nmax_ppm = 1000.0\nblocksize = 480\n\
 siri_guard = false\ncall_in = \"CABLE-A Output\"\nsiri_mode = \"always\"\n\
 siri_profile = \"deep-wide\"\nspk_buffer_ms = 40.0\nduck_others = false\n\
-duck_percent = 60.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
+duck_percent = 60.0\ndictation_mute = false\ndictation_apps = \"Typeless\"\n\
+debug_max_s = 600.0\nstats_interval_s = 5.0\n";
         assert_eq!(config_text(&Settings::default()), expected);
     }
 
@@ -504,6 +517,8 @@ spk_buffer_ms = 40.0\ndebug_max_s = 600.0\nstats_interval_s = 5.0\n";
             siri_mode: "heysiri".into(),
             siri_profile: "early".into(),
             siri_depth_db: Some(-45.0),
+            dictation_mute: true,
+            dictation_apps: "Typeless, Wispr Flow".into(),
             debug_wav: Some("C:\\tmp\\wav".into()),
             ..Settings::default()
         };

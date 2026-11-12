@@ -24,3 +24,7 @@ siri_mode = "always"          # always | heysiri（聽到「Hey」接「s」音�
 siri_profile = "deep-wide"    # deep-wide（標準，削 1–6.5 kHz）| early（加強：heysiri 模式一聽到「Hey」就先削）
 duck_others = false           # 對方說話時降低其他程式的音量（需要 siri_guard = true）
 duck_percent = 60             # 降低多少 %（100 = 靜音）
+
+[dictation]
+dictation_mute = false        # 語音輸入軟體錄音時，送給通話軟體的聲音靜音
+dictation_apps = "Typeless"   # 語音輸入軟體的程式名稱（不用 .exe），多個用逗號隔開

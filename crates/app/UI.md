@@ -150,6 +150,11 @@ the restore animation).
 * 回聲消除引擎: radio buttons — 自動 / WebRTC（推薦）/ Speex（雙方同時講話
   比較不會被吃字）/ NLMS（備援）/ 關閉（只轉送）, each with one line.
 * 聲音處理 toggles: 降噪、去除低頻嗡嗡聲（高通）、自動音量（AGC）.
+* 語音輸入 section: switch 語音輸入時不送聲音給對方 (off by default) and a
+  text box 語音輸入軟體 (program names separated by commas, default
+  "Typeless"; applied on Enter or when the box loses focus; disabled while
+  the switch is off).  While the virtual mic is muted for voice typing the
+  home hero sentence reads "語音輸入中：對方暫時聽不到你的聲音。".
 * 延遲 card: "量測延遲" button (plays ~4 s of noise; result shown in an
   InfoBar with a one-click "套用建議值"), 喇叭延遲 / 麥克風延遲 number
   boxes, 輸出音量 slider (dB).

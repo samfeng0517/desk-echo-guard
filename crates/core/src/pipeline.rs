@@ -8,6 +8,10 @@
 //!     (siri_guard)
 //!     [CABLE-A Output] --> SiriGuard (heysiri: ~60 ms lookahead) --spk_buf--> [speakers]
 //!          ^ Discord/LINE output device = CABLE-A Input
+//!
+//!     (dictation_mute)
+//!     a voice typing program records from a mic --> the AEC output is
+//!     faded to silence on its way into out_buf (see `dictation`)
 //! ```
 //!
 //! The loopback of the real speakers captures the final speaker signal, i.e.
@@ -35,6 +39,7 @@ use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand_distr::{Distribution, StandardNormal};
 
+use crate::dictation::{self, MuteGate, WatcherFactory};
 use crate::duck;
 use crate::settings::Settings;
 use crate::vcable;
@@ -65,6 +70,8 @@ pub struct Status {
     /// mean AEC processing time per 10 ms frame
     pub aec_ms: f32,
     pub siri_detections: u64,
+    /// the virtual mic is silent because a voice typing program records
+    pub dictation_muted: bool,
     /// mic peak since the last `take_mic_peak`
     pub mic_peak: f32,
     /// first thread error (the pipeline has stopped)
@@ -149,6 +156,8 @@ struct Shared {
     detections: AtomicU64,
     /// `monotonic_s()` (f64 bits) when the call audio last held speech
     call_speech_at: AtomicU64,
+    /// a voice typing program records: send silence to the call
+    dictating: AtomicBool,
     /// peak since `take_mic_peak` / since the last stats line
     peak_gui: AtomicF32,
     peak_stats: AtomicF32,
@@ -196,6 +205,7 @@ impl Shared {
             proc_ns: AtomicU64::new(0),
             detections: AtomicU64::new(0),
             call_speech_at: AtomicU64::new(f64::NEG_INFINITY.to_bits()),
+            dictating: AtomicBool::new(false),
             peak_gui: AtomicF32::new(0.0),
             peak_stats: AtomicF32::new(0.0),
             taps,
@@ -346,6 +356,44 @@ fn duck_loop(sh: &Shared, speaker: Option<String>, percent: f64, log: LogSink) -
     Ok(())
 }
 
+/// While a voice typing program records, tell the AEC thread to send
+/// silence to the call (see [`dictation`]).  Problems are logged and end
+/// this thread only; the call then hears the mic as usual.
+fn dictation_loop(sh: &Shared, open: WatcherFactory, speed: f64, log: LogSink) -> Result<()> {
+    let tick = Duration::from_secs_f64(dictation::POLL_S / speed.max(1e-3));
+    let mut watcher = match open() {
+        Ok(w) => w,
+        Err(e) => {
+            log(format!("[dictation] not available: {e:#}"));
+            return Ok(());
+        }
+    };
+    log("[dictation] the call hears silence while a voice typing program records".into());
+    let mut control = dictation::MuteControl::new();
+    let mut muted = false;
+    while !sh.stopping() {
+        thread::sleep(tick);
+        let app = match watcher.recording() {
+            Ok(app) => app,
+            Err(e) => {
+                log(format!("[dictation] stopped: {e:#}"));
+                break;
+            }
+        };
+        let now = control.step(dictation::POLL_S, app.is_some());
+        if now != muted {
+            muted = now;
+            sh.dictating.store(muted, Relaxed);
+            log(match app {
+                Some(app) => format!("[dictation] {app} is recording: the call hears silence"),
+                None => "[dictation] done: the call hears the mic again".into(),
+            });
+        }
+    }
+    sh.dictating.store(false, Relaxed);
+    Ok(())
+}
+
 /// Elastic buffer -> device.
 fn writer(
     sh: &Shared,
@@ -373,6 +421,7 @@ fn aec_loop(
     let mut r = vec![0.0f32; FRAME];
     let mut y = vec![0.0f32; FRAME];
     let mut levels = [LEVEL_FLOOR_DB; 3];
+    let mut gate = MuteGate::new(FS);
     while !sh.stopping() {
         mic.read(&mut block)?;
         acc.extend_from_slice(&block);
@@ -386,6 +435,8 @@ fn aec_loop(
             sh.proc_ns
                 .fetch_add(t0.elapsed().as_nanos() as u64, Relaxed);
             sh.frames.fetch_add(1, Relaxed);
+            // voice typing: the call must not hear the dictated words
+            gate.process(sh.dictating.load(Relaxed), &mut y);
             sh.out_buf.push(&y);
 
             let peak = m.iter().fold(0.0f32, |p, v| p.max(v.abs()));
@@ -459,6 +510,22 @@ pub struct EchoGuard {
 impl EchoGuard {
     /// Build the DSP, open the devices and start the threads.
     pub fn start(s: &Settings, backend: Arc<dyn AudioBackend>, log: LogSink) -> Result<EchoGuard> {
+        let watcher: Option<WatcherFactory> = s.dictation_mute.then(|| {
+            let apps = s.dictation_apps.clone();
+            Box::new(move || dictation::open_watcher(&apps)) as WatcherFactory
+        });
+        Self::start_with(s, backend, log, watcher)
+    }
+
+    /// [`start`](Self::start) with the voice typing watcher given by the
+    /// caller (`None` = the call always hears the mic), whatever
+    /// `dictation_mute` says.
+    pub fn start_with(
+        s: &Settings,
+        backend: Arc<dyn AudioBackend>,
+        log: LogSink,
+        watcher: Option<WatcherFactory>,
+    ) -> Result<EchoGuard> {
         // keep full speed when minimized / in the tray (Windows EcoQoS)
         echoguard_audio::disable_power_throttling();
         let opts = EngineOptions {
@@ -538,6 +605,12 @@ impl EchoGuard {
                 })?;
             }
         }
+        if let Some(open) = watcher {
+            let (speed, log) = (backend.speed(), eg.log.clone());
+            spawn(&sh, th, "dictation", move |sh| {
+                dictation_loop(sh, open, speed, log)
+            })?;
+        }
         spawn(&sh, th, "aec", move |sh| aec_loop(sh, mic, aec, bs))?;
         Ok(eg)
     }
@@ -555,6 +628,7 @@ impl EchoGuard {
             out_underruns: sh.out_underruns.load(Relaxed),
             aec_ms: self.aec_ms() as f32,
             siri_detections: sh.detections.load(Relaxed),
+            dictation_muted: sh.dictating.load(Relaxed),
             mic_peak: sh.peak_gui.load(),
             error: sh.error_text(),
         }

@@ -473,6 +473,8 @@ impl Controller {
         cfg.set_siri_guard(s_.siri_guard);
         cfg.set_duck_others(s_.duck_others);
         cfg.set_duck_percent(s_.duck_percent as f32);
+        cfg.set_dictation_mute(s_.dictation_mute);
+        cfg.set_dictation_apps(s(s_.dictation_apps.clone()));
         cfg.set_siri_mode_index(idx(&MODES, &s_.siri_mode));
         // names of removed profiles were mapped to the default on load
         cfg.set_siri_profile_index(idx(&PROFILES, &s_.siri_profile));
@@ -523,6 +525,8 @@ impl Controller {
         n.siri_guard = cfg.get_siri_guard();
         n.duck_others = cfg.get_duck_others();
         n.duck_percent = (cfg.get_duck_percent().round() as f64).clamp(0.0, 100.0);
+        n.dictation_mute = cfg.get_dictation_mute();
+        n.dictation_apps = cfg.get_dictation_apps().trim().to_string();
         n.siri_mode = pick(&MODES, cfg.get_siri_mode_index(), "always");
         n.siri_profile = pick(&PROFILES, cfg.get_siri_profile_index(), "deep-wide");
         let dbg = cfg.get_debug_wav().to_string();
@@ -1132,6 +1136,7 @@ impl Controller {
         app.set_mic_db(s(format!("{:.0} dB", st.mic_db)));
         app.set_ref_db(s(format!("{:.0} dB", st.ref_db)));
         app.set_out_db(s(format!("{:.0} dB", st.out_db)));
+        app.set_dictation_muted(st.dictation_muted);
         if app.get_page() == 3 && app.get_diag_expanded() {
             self.refresh_diag(Some(st));
         }

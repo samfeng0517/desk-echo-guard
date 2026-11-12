@@ -37,6 +37,8 @@ export global AppState {
     in property <string> mic-db;
     in property <string> ref-db;
     in property <string> out-db;
+    // the call hears silence: a voice typing program is recording
+    in property <bool> dictation-muted;
 
     // InfoBars per page
     in property <[InfoBarData]> home-bars;
@@ -115,6 +117,8 @@ export global Cfg {
     in-out property <int> siri-profile-index; // deep-wide early
     in-out property <bool> duck-others;
     in-out property <float> duck-percent: 60;
+    in-out property <bool> dictation-mute;
+    in-out property <string> dictation-apps: "Typeless";
     in-out property <string> debug-wav;
 
     // called after every edit: Rust saves and, if running, re-applies
