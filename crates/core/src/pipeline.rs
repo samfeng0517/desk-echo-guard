@@ -6,7 +6,7 @@
 //!     [physical mic] -----------> AEC ---out_buf--> [CABLE Input]  (Discord/LINE mic = CABLE Output)
 //!
 //!     (siri_guard)
-//!     [CABLE-A Output] --> SiriGuard (sibilant: ~60 ms lookahead) --spk_buf--> [speakers]
+//!     [CABLE-A Output] --> SiriGuard (heysiri: ~60 ms lookahead) --spk_buf--> [speakers]
 //!          ^ Discord/LINE output device = CABLE-A Input
 //! ```
 //!
@@ -29,12 +29,13 @@ use echoguard_aec::{make_engine, AecProcessor, EngineOptions};
 use echoguard_audio::{AudioBackend, DeviceKind, InputStream, OutputStream};
 use echoguard_dsp::{
     db, energy, estimate_delay_ms, Detector, ElasticBuffer, ElasticOptions, GuardConfig, GuardMode,
-    NotchConfig, SibilantDetector, SiriGuard, FRAME, FS,
+    HeySiriDetector, NotchConfig, SiriGuard, DEFAULT_PROFILE, FRAME, FS,
 };
 use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand_distr::{Distribution, StandardNormal};
 
+use crate::duck;
 use crate::settings::Settings;
 use crate::vcable;
 
@@ -146,6 +147,8 @@ struct Shared {
     frames: AtomicU64,
     proc_ns: AtomicU64,
     detections: AtomicU64,
+    /// `monotonic_s()` (f64 bits) when the call audio last held speech
+    call_speech_at: AtomicU64,
     /// peak since `take_mic_peak` / since the last stats line
     peak_gui: AtomicF32,
     peak_stats: AtomicF32,
@@ -192,6 +195,7 @@ impl Shared {
             frames: AtomicU64::new(0),
             proc_ns: AtomicU64::new(0),
             detections: AtomicU64::new(0),
+            call_speech_at: AtomicU64::new(f64::NEG_INFINITY.to_bits()),
             peak_gui: AtomicF32::new(0.0),
             peak_stats: AtomicF32::new(0.0),
             taps,
@@ -299,6 +303,9 @@ fn guard_reader(
     let mut y = vec![0.0f32; blocksize];
     while !sh.stopping() {
         stream.read(&mut x)?;
+        if duck::is_speech(&x) {
+            sh.call_speech_at.store(monotonic_s().to_bits(), Relaxed);
+        }
         guard.process(&x, &mut y);
         sh.detections.store(guard.detections(), Relaxed);
         if let Some(t) = &sh.taps {
@@ -306,6 +313,36 @@ fn guard_reader(
         }
         sh.spk_buf.push(&y);
     }
+    Ok(())
+}
+
+/// While the call partner speaks, turn the other programs on the speakers
+/// down (see [`duck`]).  Problems with the volume mixer are logged and end
+/// this thread only; the audio keeps running.
+fn duck_loop(sh: &Shared, speaker: Option<String>, percent: f64, log: LogSink) -> Result<()> {
+    const TICK: Duration = Duration::from_millis(20);
+    let mut ducker = match duck::open_ducker(speaker.as_deref()) {
+        Ok(d) => d,
+        Err(e) => {
+            log(format!("[duck] not available: {e:#}"));
+            return Ok(());
+        }
+    };
+    log(format!(
+        "[duck] other programs are lowered by {percent:.0} % while the call partner speaks"
+    ));
+    let mut control = duck::DuckControl::new(percent);
+    while !sh.stopping() {
+        thread::sleep(TICK);
+        let quiet = monotonic_s() - f64::from_bits(sh.call_speech_at.load(Relaxed));
+        if let Some(gain) = control.step(TICK.as_secs_f64(), quiet) {
+            if let Err(e) = ducker.set_gain(gain) {
+                log(format!("[duck] stopped: {e:#}"));
+                break;
+            }
+        }
+    }
+    // dropping the ducker restores the volumes
     Ok(())
 }
 
@@ -378,11 +415,22 @@ fn aec_loop(
 
 // ----------------------------------------------------------------- pipeline
 
+/// `siri_profile` values: the default notch profile, and the same bands
+/// with the `heysiri` region already opening during the "hey".
+pub const GUARD_PROFILES: &[&str] = &[DEFAULT_PROFILE, "early"];
+
 /// Build the Siri guard from the settings (`siri_guard.make_guard`):
-/// `sibilant` uses the built-in /s/ detector (lookahead derived from it),
-/// `always` notches all the time.
+/// `always` notches all the time; `heysiri` runs the "hey s-iri" detector
+/// and notches from the /s/ on (profile `deep-wide`) or already from the
+/// "hey" (profile `early`); ~60 ms lookahead either way.
 pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
-    let notch = NotchConfig::profile(&s.siri_profile, s.siri_depth_db)?;
+    let early = s.siri_profile == "early";
+    let bands = if early {
+        DEFAULT_PROFILE
+    } else {
+        &s.siri_profile
+    };
+    let notch = NotchConfig::profile(bands, s.siri_depth_db)?;
     let mode: GuardMode = s.siri_mode.parse()?;
     let cfg = GuardConfig {
         mode,
@@ -390,7 +438,8 @@ pub fn make_guard(s: &Settings) -> Result<SiriGuard> {
         ..Default::default()
     };
     let det: Option<Box<dyn Detector>> = match mode {
-        GuardMode::Sibilant => Some(Box::new(SibilantDetector::default())),
+        GuardMode::HeySiri if early => Some(Box::new(HeySiriDetector::hey_first())),
+        GuardMode::HeySiri => Some(Box::new(HeySiriDetector::default())),
         GuardMode::Always | GuardMode::Off => None,
     };
     SiriGuard::new(cfg, det)
@@ -482,6 +531,12 @@ impl EchoGuard {
             spawn(&sh, th, "spk-writer", move |sh| {
                 writer(sh, spk, |sh| &sh.spk_buf, bs)
             })?;
+            if s.duck_others && s.duck_percent > 0.0 {
+                let (speaker, percent, log) = (s.speaker.clone(), s.duck_percent, eg.log.clone());
+                spawn(&sh, th, "ducker", move |sh| {
+                    duck_loop(sh, speaker, percent, log)
+                })?;
+            }
         }
         spawn(&sh, th, "aec", move |sh| aec_loop(sh, mic, aec, bs))?;
         Ok(eg)
@@ -780,15 +835,25 @@ mod tests {
         };
         let g = make_guard(&s).unwrap();
         assert!(g.latency() < FS / 10);
-        s.siri_mode = "sibilant".into();
+        s.siri_mode = "heysiri".into();
         let g = make_guard(&s).unwrap();
         assert!(
             g.latency() > 600 && g.latency() < FS / 10,
             "{}",
             g.latency()
         );
-        s.siri_mode = "detect".into(); // removed in 0.4.1 (settings map it)
-        assert!(make_guard(&s).is_err());
+        // "early": the same bands and latency, the "hey" stage is on
+        s.siri_profile = "early".into();
+        let e = make_guard(&s).unwrap();
+        assert_eq!(e.notch_config(), g.notch_config());
+        assert_eq!(e.latency(), g.latency());
+        s.siri_mode = "always".into();
+        assert_eq!(make_guard(&s).unwrap().latency(), 600);
+        s.siri_profile = DEFAULT_PROFILE.into();
+        for removed in ["detect", "sibilant"] {
+            s.siri_mode = removed.into(); // the settings map them to heysiri
+            assert!(make_guard(&s).is_err());
+        }
         s.siri_mode = "bogus".into();
         assert!(make_guard(&s).is_err());
         s.siri_mode = "always".into();

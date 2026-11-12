@@ -51,7 +51,7 @@
 |---|---|
 | 你的聲音（麥克風 → 對方） | 約 60–70 ms：輸出緩衝 40 ms + 10 ms 音框 + AEC3 約 9 ms |
 | 對方聲音，Siri 防護 `always` | 約多 12.5 ms（濾波器群延遲） |
-| 對方聲音，Siri 防護 `sibilant` | 約多 0.07 秒（濾波器 12.5 ms + 預看 60 ms：偵測到「s」音時要回頭從它開頭削起） |
+| 對方聲音，Siri 防護 `heysiri` | 約多 0.07 秒（濾波器 12.5 ms + 預看 60 ms：偵測到「s」音時要回頭從它開頭削起） |
 
 ## 音效裝置
 
@@ -76,7 +76,7 @@ crates/
               開機自動啟動、自我檢測（--self-test）
   app/        DeskEchoGuard.exe：Slint 圖形介面（ui/、規格見 UI.md）、系統匣、命令列
 assets/       圖示（tools/make_icon.py 產生）
-tools/        圖示產生器（Python）
+tools/        圖示產生器、「Hey Siri」偵測模型的訓練腳本（Python）
 ```
 
 開發、測試、發佈見 [開發說明](development.md)。

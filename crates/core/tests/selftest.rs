@@ -12,7 +12,7 @@ fn self_test_passes_and_writes_report() {
     assert!(text.contains("ok   AEC speex: ERLE"), "{text}");
     assert!(text.contains("ok   AEC nlms: ERLE"), "{text}");
     assert!(text.contains("siri notch 4 kHz"), "{text}");
-    assert!(text.contains("ok   siri sibilant mode latency"), "{text}");
+    assert!(text.contains("ok   siri heysiri mode latency"), "{text}");
     // no audio API on Linux CI: informational only
     assert!(text.contains("info audio"), "{text}");
     assert!(text.trim_end().ends_with("RESULT: PASS"), "{text}");

@@ -131,10 +131,10 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub siri_guard: bool,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["sibilant", "always"])]
+          value_parser = ["heysiri", "always"])]
     pub siri_mode: Option<String>,
     #[arg(long, help_heading = "Hey Siri anti-trigger",
-          value_parser = ["deep-wide", "apple-deep", "apple-wide", "formant"])]
+          value_parser = ["deep-wide", "early"])]
     pub siri_profile: Option<String>,
     #[arg(
         long,
@@ -142,6 +142,25 @@ pub struct Cli {
         allow_negative_numbers = true
     )]
     pub siri_depth_db: Option<f64>,
+
+    /// while the call partner speaks, lower the other programs' volume
+    /// (needs --siri-guard)
+    #[arg(long, help_heading = "Hey Siri anti-trigger")]
+    pub duck_others: bool,
+    /// how much to lower them, in percent (default 60)
+    #[arg(long, help_heading = "Hey Siri anti-trigger")]
+    pub duck_percent: Option<f64>,
+
+    /// write the files for a listening test on a real HomePod / iPhone
+    /// (numbered wavs, a record sheet and the answers) into DIR
+    #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "DIR")]
+    pub siri_test: Option<PathBuf>,
+    /// --siri-test: also use this recording of "Hey Siri" (wav; repeatable)
+    #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "WAV")]
+    pub siri_test_clip: Vec<PathBuf>,
+    /// --siri-test: how often each combination is played (default 2)
+    #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "N")]
+    pub siri_test_repeats: Option<usize>,
 
     // ---- debug / offline
     /// directory to dump mic/ref/out wavs on exit
@@ -271,11 +290,15 @@ pub fn make_settings(cli: &Cli) -> Result<Settings> {
         max_ppm,
         blocksize
     );
-    set!(siri_mode, siri_profile, stats_interval_s);
+    set!(siri_mode, siri_profile, stats_interval_s, duck_percent);
     set_opt!(mic, speaker, siri_depth_db, debug_wav);
     if cli.siri_guard {
         s.siri_guard = true;
     }
+    if cli.duck_others {
+        s.duck_others = true;
+    }
+    s.duck_percent = s.duck_percent.clamp(0.0, 100.0);
     Ok(s)
 }
 
@@ -318,6 +341,14 @@ pub fn run(cli: &Cli) -> Result<i32> {
         return Ok(0);
     }
 
+    if let Some(dir) = &cli.siri_test {
+        let n = crate::siritest::run(dir, &cli.siri_test_clip, cli.siri_test_repeats.unwrap_or(2))?;
+        println!(
+            "[siri-test] wrote {n} wav files, 說明與記錄表.txt and 答案.txt to {}",
+            dir.display()
+        );
+        return Ok(0);
+    }
     if let Some(input) = &cli.sim_guard_in {
         let Some(out) = &cli.sim_guard_out else {
             bail!("--sim-guard-in needs --sim-guard-out");
@@ -454,8 +485,8 @@ mod tests {
         .unwrap();
         let st = make_settings(&parse(&["--config", cfg.to_str().unwrap()])).unwrap();
         assert!(st.siri_guard);
-        assert_eq!(st.siri_mode, "sibilant");
-        assert_eq!(st.siri_profile, "apple-deep");
+        assert_eq!(st.siri_mode, "heysiri");
+        assert_eq!(st.siri_profile, "deep-wide");
     }
 
     #[test]
@@ -511,9 +542,9 @@ mod tests {
             "960",
             "--siri-guard",
             "--siri-mode",
-            "sibilant",
+            "heysiri",
             "--siri-profile",
-            "formant",
+            "early",
             "--siri-depth-db",
             "-30",
             "--debug-wav",
@@ -540,8 +571,8 @@ mod tests {
             max_ppm: 500.0,
             blocksize: 960,
             siri_guard: true,
-            siri_mode: "sibilant".into(),
-            siri_profile: "formant".into(),
+            siri_mode: "heysiri".into(),
+            siri_profile: "early".into(),
             siri_depth_db: Some(-30.0),
             debug_wav: Some("dbg".into()),
             stats_interval_s: 0.0,
@@ -566,6 +597,8 @@ mod tests {
             &["--engine", "foo"][..],
             &["--siri-mode", "never"],
             &["--siri-mode", "detect"],
+            &["--siri-mode", "sibilant"],
+            &["--siri-profile", "formant"],
             &["--siri-model", "a.onnx"],
             &["--siri-threshold", "0.5"],
             &["--siri-lookahead-s", "1"],

@@ -21,8 +21,8 @@ use crate::tray::{Tray, TrayCmd};
 use crate::{AppState, AppWindow, Cfg, DiagRow, InfoBarData, Severity, TipState};
 
 pub const ENGINES: [&str; 5] = ["auto", "webrtc", "speex", "nlms", "off"];
-pub const MODES: [&str; 2] = ["always", "sibilant"];
-pub const PROFILES: [&str; 4] = ["deep-wide", "apple-deep", "apple-wide", "formant"];
+pub const MODES: [&str; 2] = ["always", "heysiri"];
+pub const PROFILES: [&str; 2] = ["deep-wide", "early"];
 
 const LOG_LINES: usize = 300;
 const APPLY_DELAY: Duration = Duration::from_millis(800);
@@ -471,13 +471,11 @@ impl Controller {
         cfg.set_mic_delay_ms(s_.mic_delay_ms.round() as i32);
         cfg.set_gain_db(s_.output_gain_db as f32);
         cfg.set_siri_guard(s_.siri_guard);
+        cfg.set_duck_others(s_.duck_others);
+        cfg.set_duck_percent(s_.duck_percent as f32);
         cfg.set_siri_mode_index(idx(&MODES, &s_.siri_mode));
-        let profile = if s_.siri_profile == "apple" {
-            "deep-wide"
-        } else {
-            &s_.siri_profile
-        };
-        cfg.set_siri_profile_index(idx(&PROFILES, profile));
+        // names of removed profiles were mapped to the default on load
+        cfg.set_siri_profile_index(idx(&PROFILES, &s_.siri_profile));
         cfg.set_debug_wav(s(s_.debug_wav.clone().unwrap_or_default()));
         drop(st);
         self.write_device_indexes();
@@ -523,6 +521,8 @@ impl Controller {
         n.mic_delay_ms = cfg.get_mic_delay_ms() as f64;
         n.output_gain_db = cfg.get_gain_db().round() as f64;
         n.siri_guard = cfg.get_siri_guard();
+        n.duck_others = cfg.get_duck_others();
+        n.duck_percent = (cfg.get_duck_percent().round() as f64).clamp(0.0, 100.0);
         n.siri_mode = pick(&MODES, cfg.get_siri_mode_index(), "always");
         n.siri_profile = pick(&PROFILES, cfg.get_siri_profile_index(), "deep-wide");
         let dbg = cfg.get_debug_wav().to_string();

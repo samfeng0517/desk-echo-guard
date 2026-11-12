@@ -197,12 +197,8 @@ impl Engine for MockEngine {
             speaker,
             engine,
             siri: s.siri_guard,
-            // like the real guard: notch delay (+ the sibilant lookahead)
-            siri_latency_ms: if s.siri_mode == "sibilant" {
-                72.5
-            } else {
-                12.5
-            },
+            // like the real guard: notch delay (+ the detector lookahead)
+            siri_latency_ms: if s.siri_mode == "heysiri" { 72.5 } else { 12.5 },
         });
         Ok(())
     }
