@@ -1,4 +1,4 @@
-import { Button, Switch, SpinBox, Slider, TextEdit, AboutSlint } from "std-widgets.slint";
+import { Button, Switch, SpinBox, Slider, TextEdit, LineEdit, AboutSlint } from "std-widgets.slint";
 import { Theme, Icons } from "../theme.slint";
 import { Tips } from "../tips.slint";
 import { Tip, Card, SettingsCard, ExpanderCard, CardRow, RadioOption, InfoBar, LinkText, FluentIcon, Caption } from "../controls.slint";
@@ -154,6 +154,51 @@ export component AdvancedPage inherits Page {
             checked <=> Cfg.agc;
             toggled => {
                 Cfg.changed();
+            }
+        }
+    }
+
+    // ---- voice typing (Typeless, ...)
+    Section {
+        text: "語音輸入";
+    }
+    SettingsCard {
+        icon: Icons.mic;
+        title: "語音輸入時不送聲音給對方";
+        description: "用 Typeless 等語音輸入時，Discord / LINE 的對方暫時聽不到你，輸入結束後自動恢復";
+        tip: Tips.dictation-mute;
+        LabeledSwitch {
+            tip: Tips.dictation-mute;
+            checked <=> Cfg.dictation-mute;
+            toggled => {
+                Cfg.changed();
+            }
+        }
+    }
+    SettingsCard {
+        icon: Icons.window;
+        title: "語音輸入軟體";
+        description: "程式名稱，多個用逗號隔開。按 Enter 套用";
+        tip: Tips.dictation-apps;
+        enabled: Cfg.dictation-mute;
+        Tip {
+            tip: Tips.dictation-apps;
+            focused: apps.has-focus;
+            apps := LineEdit {
+                width: 200px;
+                enabled: Cfg.dictation-mute;
+                placeholder-text: "Typeless";
+                text: Cfg.dictation-apps;
+                accepted => {
+                    Cfg.dictation-apps = self.text;
+                    Cfg.changed();
+                }
+                changed has-focus => {
+                    if !self.has-focus && self.text != Cfg.dictation-apps {
+                        Cfg.dictation-apps = self.text;
+                        Cfg.changed();
+                    }
+                }
             }
         }
     }

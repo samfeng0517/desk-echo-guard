@@ -113,3 +113,88 @@ fn threaded_pipeline_with_clock_drift() {
     assert!(0.0 < lat && lat < 300.0, "latency {lat} ms");
     assert!(drop > 15.0, "guard band drop {drop:.1} dB");
 }
+
+/// Voice typing: while the watched program records, the virtual mic is
+/// silent; before and after it carries the mic.
+#[test]
+fn dictation_mutes_the_virtual_mic() {
+    use echoguard_core::dictation::{DictationWatcher, WatcherFactory};
+
+    /// "Records" from 1 s to 2 s after it was opened (2 s .. 4 s of audio).
+    struct Fake(Instant);
+    impl DictationWatcher for Fake {
+        fn recording(&mut self) -> anyhow::Result<Option<String>> {
+            let t = self.0.elapsed().as_secs_f64();
+            Ok((1.0..2.0).contains(&t).then(|| "Typeless.exe".to_string()))
+        }
+    }
+
+    let dur = 6.0;
+    let mic = synth_speech(dur, 3);
+    let be = Arc::new(
+        SimBackend::new(SPEED)
+            .with_input("USB Mic", mic, 0.0)
+            .with_loopback(
+                "Speakers (Realtek)",
+                vec![0.0; (dur * 48_000.0) as usize],
+                0.0,
+            )
+            .with_output("CABLE Input", 0.0),
+    );
+    let st = Settings {
+        mic: Some("usb".into()),
+        speaker: Some("realtek".into()),
+        out: "cable input".into(),
+        engine: "off".into(),
+        stats_interval_s: 0.0,
+        ref_buffer_ms: 20.0 * SPEED,
+        out_buffer_ms: 40.0 * SPEED,
+        ..Default::default()
+    };
+    let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let log: LogSink = Arc::new(move |l| sink.lock().unwrap().push(l));
+    let t0 = Instant::now();
+    let open: WatcherFactory =
+        Box::new(move || Ok(Box::new(Fake(t0)) as Box<dyn DictationWatcher>));
+    let eg = EchoGuard::start_with(&st, be.clone(), log, Some(open)).expect("start");
+    let mut seen = Vec::new();
+    while t0.elapsed().as_secs_f64() < dur / SPEED && !eg.is_stopped() {
+        std::thread::sleep(Duration::from_millis(20));
+        seen.push((t0.elapsed().as_secs_f64(), eg.status().dictation_muted));
+    }
+    eg.stop().expect("pipeline error");
+
+    // the status follows the program (plus the short hold)
+    let at = |a: f64, b: f64| seen.iter().filter(move |(t, _)| (a..b).contains(t));
+    assert!(at(0.0, 0.9).all(|(_, m)| !m), "{seen:?}");
+    assert!(at(1.2, 1.9).all(|(_, m)| *m), "{seen:?}");
+    assert!(at(2.5, 3.0).all(|(_, m)| !m), "{seen:?}");
+
+    let out = be.output_data("CABLE Input");
+    let level = |a: f64, b: f64| {
+        let (a, b) = (
+            (a * 48_000.0) as usize,
+            ((b * 48_000.0) as usize).min(out.len()),
+        );
+        echoguard_dsp::db(echoguard_dsp::energy(&out[a..b]))
+    };
+    let (before, during, after) = (level(0.5, 1.5), level(2.6, 3.8), level(4.8, 5.6));
+    println!("dictation_sim before={before:.1} dB during={during:.1} dB after={after:.1} dB");
+    assert!(
+        before > -40.0 && after > -40.0,
+        "{before:.1} / {after:.1} dB"
+    );
+    assert!(during < -100.0, "{during:.1} dB while dictating");
+    let lines = lines.lock().unwrap();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("Typeless.exe is recording")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.contains("hears the mic again")),
+        "{lines:?}"
+    );
+}

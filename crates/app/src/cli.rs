@@ -151,6 +151,16 @@ pub struct Cli {
     #[arg(long, help_heading = "Hey Siri anti-trigger")]
     pub duck_percent: Option<f64>,
 
+    // ---- voice typing
+    /// while a voice typing program (Typeless, ...) records from a mic,
+    /// send silence to the call
+    #[arg(long, help_heading = "voice typing")]
+    pub dictation_mute: bool,
+    /// the voice typing programs, exe names separated by commas
+    /// (default "Typeless")
+    #[arg(long, help_heading = "voice typing", value_name = "NAMES")]
+    pub dictation_apps: Option<String>,
+
     /// write the files for a listening test on a real HomePod / iPhone
     /// (numbered wavs, a record sheet and the answers) into DIR
     #[arg(long, help_heading = "Hey Siri anti-trigger", value_name = "DIR")]
@@ -291,12 +301,16 @@ pub fn make_settings(cli: &Cli) -> Result<Settings> {
         blocksize
     );
     set!(siri_mode, siri_profile, stats_interval_s, duck_percent);
+    set!(dictation_apps);
     set_opt!(mic, speaker, siri_depth_db, debug_wav);
     if cli.siri_guard {
         s.siri_guard = true;
     }
     if cli.duck_others {
         s.duck_others = true;
+    }
+    if cli.dictation_mute {
+        s.dictation_mute = true;
     }
     s.duck_percent = s.duck_percent.clamp(0.0, 100.0);
     Ok(s)

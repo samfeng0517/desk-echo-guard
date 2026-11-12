@@ -196,7 +196,8 @@ pub struct Settings { pub mic: Option<String>, pub speaker: Option<String>, pub 
     pub ref_buffer_ms: f64, pub out_buffer_ms: f64, pub max_ppm: f64, pub blocksize: usize,
     pub siri_guard: bool, pub call_in: String, pub siri_mode: String,
     pub siri_profile: String, pub siri_depth_db: Option<f64>,
-    pub spk_buffer_ms: f64, pub debug_wav: Option<String>,
+    pub spk_buffer_ms: f64, pub duck_others: bool, pub duck_percent: f64,
+    pub dictation_mute: bool, pub dictation_apps: String, pub debug_wav: Option<String>,
     pub debug_max_s: f64, pub stats_interval_s: f64 }
 pub const LEGACY_KEYS: &[&str];  // siri_model, siri_threshold, siri_lookahead_s: accepted + ignored
 pub fn default_config_path() -> PathBuf;                 // %APPDATA%\desk-echo-guard\echoguard.toml
@@ -208,7 +209,7 @@ pub fn save_config(path, &Settings) -> Result<()>;       // flat TOML, readable 
 pub type LogSink = Arc<dyn Fn(String) + Send + Sync>;
 pub struct Status { pub mic_db: f32, pub ref_db: f32, pub out_db: f32, pub ref_buf_ms: f32,
     pub drift_ppm: f32, pub ref_underruns: u64, pub out_underruns: u64, pub aec_ms: f32,
-    pub siri_detections: u64, pub mic_peak: f32, pub error: Option<String> }
+    pub siri_detections: u64, pub dictation_muted: bool, pub mic_peak: f32, pub error: Option<String> }
 pub struct EchoGuard;
 impl EchoGuard {
     pub fn start(s: &Settings, backend: Arc<dyn AudioBackend>, log: LogSink) -> Result<EchoGuard>;
@@ -292,6 +293,19 @@ pub fn elevated_main(args: &[String]) -> i32;
   noted in `%TEMP%\DeskEchoGuard-ducked-volumes.txt` and put back at the
   next start if the process died while ducked.  A mixer error ends only the
   ducker thread.
+* Voice typing mute (0.4.7, `core/src/dictation.rs`, no Python
+  counterpart): with `dictation_mute`, a 50 ms control thread asks
+  `DictationWatcher` whether a program named in `dictation_apps` (comma
+  separated exe names, substring match, default "Typeless") has an *active*
+  capture session on any microphone endpoint except the VB-Cable ones
+  (`IAudioSessionManager2` activated afresh per poll, `GetState` /
+  `GetProcessId`, `QueryFullProcessImageNameW`).  `MuteControl` adds a
+  0.25 s hold after the session goes inactive; the AEC thread fades its
+  output with `MuteGate` (10 ms linear ramp) before `out_buf`, so the
+  "送給對方" meter and `Status::dictation_muted` show it.  The program is
+  recognised by its recording session, not its hotkey, so hold-to-talk and
+  press-to-toggle both work.  A watcher error ends only that thread and
+  un-mutes.  `EchoGuard::start_with` takes the watcher factory (tests).
 * Pipeline levels: exponential average (a = 0.05) of per-frame dB, start at
   -120; mic clipping warning above 0.9 peak.
 * `vcable.resolve`: configured "CABLE Input" must keep working after rename.

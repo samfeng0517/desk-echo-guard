@@ -241,6 +241,7 @@ impl Engine for MockEngine {
             out_underruns: (t / 120.0) as u64,
             aec_ms: 0.42 + 0.05 * (t * 1.3).sin(),
             siri_detections: if run.siri { (t / 9.0) as u64 } else { 0 },
+            dictation_muted: false,
             mic_peak: 0.3,
             error,
         })

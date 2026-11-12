@@ -93,7 +93,7 @@ export component HomePage inherits Page {
                     accessible-role: text;
                 }
                 Text {
-                    text: AppState.busy ? AppState.busy-text : AppState.running ? "對方聽不到自己的回音了。" : "按「開始」後，對方就不會聽到回音。";
+                    text: AppState.busy ? AppState.busy-text : AppState.running ? (AppState.dictation-muted ? "語音輸入中：對方暫時聽不到你的聲音。" : "對方聽不到自己的回音了。") : "按「開始」後，對方就不會聽到回音。";
                     font-size: Theme.body;
                     color: Theme.text-secondary;
                     wrap: word-wrap;
