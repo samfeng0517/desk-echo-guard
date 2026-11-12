@@ -110,6 +110,7 @@ mod imp {
     use super::*;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::time::{Duration, Instant};
 
     use anyhow::Context;
     use windows::core::{Interface, HSTRING, PWSTR};
@@ -134,11 +135,24 @@ mod imp {
         set: f32,
     }
 
+    /// A session manager and its sessions: (instance id, persistent id, volume).
+    type Listed = (IAudioSessionManager2, Vec<(String, String, ISimpleAudioVolume)>);
+
+    /// While the others are turned down, programs that start playing are
+    /// looked for this often (not on every volume step, see `sessions`).
+    const RELOOK: Duration = Duration::from_secs(1);
+
     pub struct MixerDucker {
-        manager: IAudioSessionManager2,
+        /// the speaker endpoint
+        device: IMMDevice,
         own_pid: u32,
         /// by session *instance* id
         ducked: HashMap<String, Ducked>,
+        /// the session managers the volume controls in `ducked` came from;
+        /// released together with them when the volumes are restored
+        managers: Vec<IAudioSessionManager2>,
+        /// when the sessions were last listed while turned down
+        looked: Option<Instant>,
         gain: f32,
     }
 
@@ -204,15 +218,16 @@ mod imp {
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
                     .context("CoCreateInstance(MMDeviceEnumerator) failed")?;
             let device = speaker_device(&enumerator, speaker)?;
-            let manager: IAudioSessionManager2 = device
-                .Activate(CLSCTX_ALL, None)
-                .context("the speaker has no volume mixer")?;
             let mut d = MixerDucker {
-                manager,
+                device,
                 own_pid: std::process::id(),
                 ducked: HashMap::new(),
+                managers: Vec::new(),
+                looked: None,
                 gain: 1.0,
             };
+            // fails here if the speaker has no volume mixer
+            d.sessions()?;
             d.restore_after_crash();
             Ok(Box::new(d))
         }
@@ -220,13 +235,31 @@ mod imp {
 
     impl MixerDucker {
         /// Every other program's session on the speaker:
-        /// (instance id, persistent id, volume control).
-        fn sessions(&self) -> Result<Vec<(String, String, ISimpleAudioVolume)>> {
+        /// (instance id, persistent id, volume control), and the session
+        /// manager they belong to.
+        ///
+        /// Each call uses a session manager of its own, and a manager is
+        /// never listed twice: do not reuse one from `self.managers`.
+        /// Listing the sessions of a manager again leaves notification
+        /// registrations behind in this process (also after the listed
+        /// objects, and later the manager, are released), and every
+        /// `SetMasterVolume` from then on queues data for each of them in
+        /// the kernel (paged pool, tags EtwD / Etwr) that is only freed when
+        /// the process ends.  0.4.6 / 0.4.7 listed on one manager on every
+        /// volume step and so used up tens of MB of kernel memory per second
+        /// while the call partner spoke.  Measured on Windows 11 (26100 /
+        /// 26300): one listing per manager leaves nothing behind.  A manager
+        /// is kept only while volume controls from it are in use.
+        fn sessions(&self) -> Result<Listed> {
             let mut out = Vec::new();
             // SAFETY: COM calls on valid interfaces; returned strings are
             // CoTaskMem allocations we free in `take_string`
-            unsafe {
-                let list = self.manager.GetSessionEnumerator()?;
+            let manager = unsafe {
+                let manager: IAudioSessionManager2 = self
+                    .device
+                    .Activate(CLSCTX_ALL, None)
+                    .context("the speaker has no volume mixer")?;
+                let list = manager.GetSessionEnumerator()?;
                 for i in 0..list.GetCount()? {
                     let Ok(control) = list.GetSession(i) else {
                         continue;
@@ -248,8 +281,9 @@ mod imp {
                         out.push((instance, key, volume));
                     }
                 }
-            }
-            Ok(out)
+                manager
+            };
+            Ok((manager, out))
         }
 
         fn write_restore_file(&self) {
@@ -272,7 +306,7 @@ mod imp {
                 .filter_map(|l| l.rsplit_once('\t'))
                 .filter_map(|(k, v)| Some((k, v.parse().ok()?)))
                 .collect();
-            if let Ok(sessions) = self.sessions() {
+            if let Ok((_manager, sessions)) = self.sessions() {
                 for (_, key, volume) in sessions {
                     if let Some(&v) = saved.get(key.as_str()) {
                         // SAFETY: valid interface, null event context
@@ -289,26 +323,32 @@ mod imp {
             let gain = gain.clamp(0.0, 1.0);
             let restoring = gain >= 1.0;
             let mut changed = false;
-            // programs that started playing meanwhile are picked up here
-            let sessions = if restoring {
-                Vec::new()
-            } else {
-                self.sessions()?
-            };
+            // list the sessions when the volumes start to go down, and then
+            // now and again for programs that started playing meanwhile;
+            // not on every step (see `sessions`)
+            let look = !restoring && self.looked.is_none_or(|t| t.elapsed() >= RELOOK);
             // SAFETY: COM calls on valid interfaces, null event context
             unsafe {
-                for (instance, key, volume) in sessions {
-                    if let std::collections::hash_map::Entry::Vacant(slot) =
-                        self.ducked.entry(instance)
-                    {
-                        let original = volume.GetMasterVolume().unwrap_or(1.0);
-                        slot.insert(Ducked {
-                            volume,
-                            key,
-                            original,
-                            set: original,
-                        });
-                        changed = true;
+                if look {
+                    let (manager, sessions) = self.sessions()?;
+                    self.looked = Some(Instant::now());
+                    for (instance, key, volume) in sessions {
+                        if let std::collections::hash_map::Entry::Vacant(slot) =
+                            self.ducked.entry(instance)
+                        {
+                            let original = volume.GetMasterVolume().unwrap_or(1.0);
+                            slot.insert(Ducked {
+                                volume,
+                                key,
+                                original,
+                                set: original,
+                            });
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        // volume controls of this manager are in use now
+                        self.managers.push(manager);
                     }
                 }
                 for d in self.ducked.values_mut() {
@@ -326,7 +366,10 @@ mod imp {
             }
             self.gain = gain;
             if restoring {
+                // the volume controls first, then the managers they are from
                 self.ducked.clear();
+                self.managers.clear();
+                self.looked = None;
                 let _ = std::fs::remove_file(restore_file());
             } else if changed {
                 self.write_restore_file();

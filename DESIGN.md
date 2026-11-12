@@ -292,7 +292,14 @@ pub fn elevated_main(args: &[String]) -> i32;
   and restores it on release, stop and drop.  Original volumes are also
   noted in `%TEMP%\DeskEchoGuard-ducked-volumes.txt` and put back at the
   next start if the process died while ducked.  A mixer error ends only the
-  ducker thread.
+  ducker thread.  The sessions are listed when the volumes start to go down
+  and then at most once a second, each time on an `IAudioSessionManager2`
+  of its own that is listed once and released again unless a volume control
+  from it is in use (0.4.8).  Never list twice on one manager: that leaves
+  notification registrations behind in the process, and every later
+  `SetMasterVolume` then leaks kernel paged pool (tags EtwD / Etwr) per
+  registration until the process ends, which exhausted the system commit
+  within two hours of a call.
 * Voice typing mute (0.4.7, `core/src/dictation.rs`, no Python
   counterpart): with `dictation_mute`, a 50 ms control thread asks
   `DictationWatcher` whether a program named in `dictation_apps` (comma
