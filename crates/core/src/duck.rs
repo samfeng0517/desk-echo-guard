@@ -298,17 +298,16 @@ mod imp {
             // SAFETY: COM calls on valid interfaces, null event context
             unsafe {
                 for (instance, key, volume) in sessions {
-                    if !self.ducked.contains_key(&instance) {
+                    if let std::collections::hash_map::Entry::Vacant(slot) =
+                        self.ducked.entry(instance)
+                    {
                         let original = volume.GetMasterVolume().unwrap_or(1.0);
-                        self.ducked.insert(
-                            instance,
-                            Ducked {
-                                volume,
-                                key,
-                                original,
-                                set: original,
-                            },
-                        );
+                        slot.insert(Ducked {
+                            volume,
+                            key,
+                            original,
+                            set: original,
+                        });
                         changed = true;
                     }
                 }

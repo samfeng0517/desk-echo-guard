@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
         let mut feats: Vec<[f32; NMEL]> = vec![[silence; NMEL]; PRE_FRAMES];
         let mut onsets = Vec::new();
         let mut prev = false;
-        for (k, f) in x.chunks_exact(HOP).enumerate() {
+        for (k, f) in x.as_chunks::<HOP>().0.iter().enumerate() {
             let s = sib.is_sibilant(f);
             if s && !prev {
                 onsets.push(k);
