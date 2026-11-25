@@ -293,11 +293,19 @@ fn join_bounded(sh: &Shared, threads: &mut Vec<JoinHandle<()>>, log: &LogSink) {
 // ------------------------------------------------------------------ threads
 
 /// Device -> elastic buffer (loopback reference).
-fn ref_reader(sh: &Shared, mut stream: Box<dyn InputStream>, blocksize: usize) -> Result<()> {
+fn ref_reader(
+    sh: &Shared,
+    mut stream: Box<dyn InputStream>,
+    blocksize: usize,
+    log: LogSink,
+) -> Result<()> {
     let mut x = vec![0.0f32; blocksize];
     while !sh.stopping() {
         stream.read(&mut x)?;
         sh.ref_buf.push(&x);
+        for line in stream.take_notices() {
+            log(line);
+        }
     }
     Ok(())
 }
@@ -587,7 +595,8 @@ impl EchoGuard {
             log,
         };
         let th = &mut eg.threads;
-        spawn(&sh, th, "ref-reader", move |sh| ref_reader(sh, lb, bs))?;
+        let log = eg.log.clone();
+        spawn(&sh, th, "ref-reader", move |sh| ref_reader(sh, lb, bs, log))?;
         spawn(&sh, th, "out-writer", move |sh| {
             writer(sh, out, |sh| &sh.out_buf, bs)
         })?;
@@ -831,9 +840,10 @@ pub fn calibrate(
     let mut threads = Vec::new();
     let mut mic = backend.open_input(s.mic.as_deref(), false, bs)?;
     let lb = backend.open_input(s.speaker.as_deref(), true, bs)?;
+    let lb_log = log.clone();
     let result = (|| -> Result<(Vec<f32>, Vec<f32>)> {
         spawn(&sh, &mut threads, "ref-reader", move |sh| {
-            ref_reader(sh, lb, bs)
+            ref_reader(sh, lb, bs, lb_log)
         })?;
         thread::sleep(Duration::from_millis(200));
         let be = backend.clone();

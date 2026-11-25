@@ -12,5 +12,7 @@ rtrb = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.26"
+# endpoint volume / mute for the deaf-loopback check (same version as wasapi)
+windows = { version = "0.62", features = ["Win32_Media_Audio_Endpoints", "Win32_System_Com"] }
 # MMCSS ("Pro Audio") for the audio threads, power-throttling opt-out
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

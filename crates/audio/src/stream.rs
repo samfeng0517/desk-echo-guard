@@ -5,7 +5,7 @@
 //! platform; `wasapi.rs` only wires it to the device.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use parking_lot::{Condvar, Mutex};
@@ -18,6 +18,13 @@ pub const FS: usize = 48_000;
 /// (data, space, error, stop) notifies, so waits normally end earlier.
 const WAIT_SLICE: Duration = Duration::from_millis(100);
 
+/// A device that moves no audio at all for this long has stopped without
+/// telling us (no invalidation error).  `read` / `write` then fail, so the
+/// pipeline stops and the app restarts it, as a manual restart would.
+/// Running streams move data every few milliseconds (idle loopback included,
+/// see `IdleFiller`), so this never fires on a working device.
+pub const STALL_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// State shared between a device thread and the stream handle.
 #[derive(Default)]
 pub struct Shared {
@@ -27,6 +34,9 @@ pub struct Shared {
     /// nothing will move through the ring any more.
     dead: AtomicBool,
     error: Mutex<Option<String>>,
+    /// Device thread -> pipeline log (not errors: the stream keeps running).
+    notices: Mutex<Vec<String>>,
+    has_notice: AtomicBool,
     lock: Mutex<()>,
     cv: Condvar,
 }
@@ -84,6 +94,20 @@ impl Shared {
         self.dead.load(Ordering::SeqCst)
     }
 
+    /// Device thread: something worth a line in the log.
+    pub fn notice(&self, msg: String) {
+        self.notices.lock().push(msg);
+        self.has_notice.store(true, Ordering::SeqCst);
+    }
+
+    /// Notices since the last call (cheap when there are none).
+    pub fn take_notices(&self) -> Vec<String> {
+        if !self.has_notice.swap(false, Ordering::SeqCst) {
+            return Vec::new();
+        }
+        std::mem::take(&mut *self.notices.lock())
+    }
+
     /// Error to hand to the pipeline once the stream is dead.
     pub fn dead_error(&self, what: &str) -> anyhow::Error {
         match self.error.lock().clone() {
@@ -93,45 +117,69 @@ impl Shared {
     }
 }
 
-/// Consumer side of a capture ring: `read` blocks until `out` is full.
+/// Consumer side of a capture ring: `read` blocks until `out` is full, or
+/// fails once nothing arrived for `stall`.
 pub fn read_blocking(
     cons: &mut Consumer<f32>,
     shared: &Shared,
     what: &str,
     out: &mut [f32],
+    stall: Duration,
 ) -> Result<()> {
     let mut filled = 0;
+    let mut progress = Instant::now();
     while filled < out.len() {
         let (popped, _) = cons.pop_partial_slice(&mut out[filled..]);
-        filled += popped.len();
+        if !popped.is_empty() {
+            filled += popped.len();
+            progress = Instant::now();
+        }
         if filled == out.len() {
             break;
         }
         if shared.is_dead() && cons.is_empty() {
             return Err(shared.dead_error(what));
         }
+        if progress.elapsed() >= stall {
+            return Err(anyhow!(
+                "{what}: no audio from the device for {} s (it stopped without an error)",
+                stall.as_secs_f64()
+            ));
+        }
         shared.wait_while(|| cons.is_empty());
     }
     Ok(())
 }
 
-/// Producer side of a render ring: `write` blocks until all of `x` is queued.
+/// Producer side of a render ring: `write` blocks until all of `x` is
+/// queued, or fails once the device took nothing for `stall`.
 pub fn write_blocking(
     prod: &mut Producer<f32>,
     shared: &Shared,
     what: &str,
     x: &[f32],
+    stall: Duration,
 ) -> Result<()> {
     let mut rest = x;
+    let mut progress = Instant::now();
     loop {
         // Fail fast: once the device thread is gone nothing drains the ring.
         if shared.is_dead() {
             return Err(shared.dead_error(what));
         }
+        let before = rest.len();
         let (_, r) = prod.push_partial_slice(rest);
         rest = r;
         if rest.is_empty() {
             return Ok(());
+        }
+        if rest.len() < before {
+            progress = Instant::now();
+        } else if progress.elapsed() >= stall {
+            return Err(anyhow!(
+                "{what}: the device took no audio for {} s (it stopped without an error)",
+                stall.as_secs_f64()
+            ));
         }
         shared.wait_while(|| prod.is_full());
     }
@@ -275,6 +323,98 @@ impl IdleFiller {
     }
 }
 
+/// Endpoint peak meter at or above this: the speaker is playing something
+/// (about -34 dBFS; the meter is not affected by the volume slider).
+pub const PLAYING_PEAK: f32 = 0.02;
+/// Loopback samples above this are sound, not digital silence (-100 dBFS).
+pub const AUDIBLE_PEAK: f32 = 1e-5;
+/// Playing but nothing reaches the loopback for this long: it is deaf.
+const DEAF_AFTER_S: f64 = 3.0;
+/// ... with at least this much of that time actually playing (speech has
+/// pauses, the meter reads low in them).
+const DEAF_MIN_PLAYING_S: f64 = 1.5;
+/// A quiet stretch this long starts the observation over.
+const DEAF_QUIET_RESET_S: f64 = 2.0;
+/// After a reopen, wait this long before the next one; doubles each time up
+/// to `DEAF_BACKOFF_MAX_S`, back to the start after that long without one.
+const DEAF_BACKOFF_S: f64 = 30.0;
+const DEAF_BACKOFF_MAX_S: f64 = 600.0;
+
+/// Notices a loopback capture that went deaf: the speaker endpoint's peak
+/// meter shows it playing, yet the loopback stream delivers nothing (or
+/// only silence) for seconds.  Seen on some systems after a while in a
+/// call: the stream keeps "running", no error is reported, echo
+/// cancellation silently has no reference, and only re-opening the stream
+/// (in the app: choosing another speaker and back) brings it back.
+///
+/// Platform independent; the device thread feeds it once per wake-up.
+#[derive(Debug, Clone)]
+pub struct DeafWatch {
+    last: f64,
+    since: Option<f64>,
+    playing_s: f64,
+    last_playing: f64,
+    hold_until: f64,
+    backoff_s: f64,
+    last_trigger: f64,
+}
+
+impl DeafWatch {
+    pub fn new(now: f64) -> Self {
+        Self {
+            last: now,
+            since: None,
+            playing_s: 0.0,
+            last_playing: now,
+            hold_until: now,
+            backoff_s: DEAF_BACKOFF_S,
+            last_trigger: f64::NEG_INFINITY,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.since = None;
+        self.playing_s = 0.0;
+    }
+
+    /// One wake-up at `now`: did the loopback `heard` anything, does the
+    /// meter say the speaker is `playing`?  True = re-open the stream now
+    /// (rate limited: at most once per back-off period).
+    pub fn update(&mut self, now: f64, heard: bool, playing: bool) -> bool {
+        let dt = (now - self.last).clamp(0.0, 0.1);
+        self.last = now;
+        if heard {
+            self.reset();
+            return false;
+        }
+        if playing {
+            self.last_playing = now;
+            self.since.get_or_insert(now);
+            self.playing_s += dt;
+        } else if self.since.is_some() && now - self.last_playing > DEAF_QUIET_RESET_S {
+            self.reset();
+        }
+        let deaf = self.since.is_some_and(|s| now - s >= DEAF_AFTER_S)
+            && self.playing_s >= DEAF_MIN_PLAYING_S;
+        if !deaf || now < self.hold_until {
+            return false;
+        }
+        if now - self.last_trigger > DEAF_BACKOFF_MAX_S {
+            self.backoff_s = DEAF_BACKOFF_S;
+        }
+        self.hold_until = now + self.backoff_s;
+        self.backoff_s = (2.0 * self.backoff_s).min(DEAF_BACKOFF_MAX_S);
+        self.last_trigger = now;
+        self.reset();
+        true
+    }
+}
+
+/// Peak of `x` (0 for an empty slice).
+pub fn peak(x: &[f32]) -> f32 {
+    x.iter().fold(0.0f32, |p, v| p.max(v.abs()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,12 +533,12 @@ mod tests {
         let mut got = Vec::new();
         let mut buf = [0.0f32; 50];
         for _ in 0..6 {
-            read_blocking(&mut cons, &shared, "mic", &mut buf).unwrap();
+            read_blocking(&mut cons, &shared, "mic", &mut buf, STALL_TIMEOUT).unwrap();
             got.extend_from_slice(&buf);
         }
         assert_eq!(got, (0..300).map(|i| i as f32).collect::<Vec<_>>());
         // producer finished: the next read fails instead of blocking forever
-        let e = read_blocking(&mut cons, &shared, "mic", &mut buf).unwrap_err();
+        let e = read_blocking(&mut cons, &shared, "mic", &mut buf, STALL_TIMEOUT).unwrap_err();
         assert!(e.to_string().contains("mic"));
         t.join().unwrap();
     }
@@ -422,11 +562,11 @@ mod tests {
         });
         let x: Vec<f32> = (0..100).map(|i| i as f32).collect();
         let t0 = Instant::now();
-        write_blocking(&mut prod, &shared, "speaker", &x).unwrap();
+        write_blocking(&mut prod, &shared, "speaker", &x, STALL_TIMEOUT).unwrap();
         assert!(t0.elapsed() > Duration::from_millis(3)); // had to wait for space
         let got = t.join().unwrap();
         assert_eq!(got, x);
-        let e = write_blocking(&mut prod, &shared, "speaker", &[1.0]).unwrap_err();
+        let e = write_blocking(&mut prod, &shared, "speaker", &[1.0], STALL_TIMEOUT).unwrap_err();
         assert!(e.to_string().contains("device invalidated"), "{e}");
     }
 
@@ -449,5 +589,114 @@ mod tests {
         let t0 = Instant::now();
         s.wait_while(|| true);
         assert!(t0.elapsed() < Duration::from_millis(50));
+    }
+
+    #[test]
+    fn stalled_device_fails_read_and_write() {
+        let stall = Duration::from_millis(150);
+        // producer alive but silent: read gives up after `stall`
+        let (_prod, mut cons) = RingBuffer::<f32>::new(64);
+        let shared = Shared::new();
+        let mut buf = [0.0f32; 8];
+        let t0 = Instant::now();
+        let e = read_blocking(&mut cons, &shared, "microphone 'USB'", &mut buf, stall).unwrap_err();
+        assert!(t0.elapsed() >= stall, "{:?}", t0.elapsed());
+        assert!(e.to_string().contains("microphone 'USB'"), "{e}");
+        assert!(e.to_string().contains("no audio"), "{e}");
+
+        // a slow but steady producer is not a stall
+        let (mut prod, mut cons) = RingBuffer::<f32>::new(64);
+        let shared = Arc::new(Shared::new());
+        let sh = shared.clone();
+        let t = thread::spawn(move || {
+            for _ in 0..8 {
+                thread::sleep(Duration::from_millis(50));
+                let _ = prod.push(1.0);
+                sh.notify();
+            }
+        });
+        // 8 samples over ~400 ms, more than `stall` in total
+        read_blocking(&mut cons, &shared, "mic", &mut buf, stall).unwrap();
+        t.join().unwrap();
+
+        // consumer gone quiet: write gives up after `stall`
+        let (mut prod, _cons) = RingBuffer::<f32>::new(4);
+        let shared = Shared::new();
+        let e = write_blocking(&mut prod, &shared, "speaker 'X'", &[0.0; 8], stall).unwrap_err();
+        assert!(e.to_string().contains("speaker 'X'"), "{e}");
+    }
+
+    #[test]
+    fn notices_are_handed_over_once() {
+        let s = Shared::new();
+        assert!(s.take_notices().is_empty());
+        s.notice("a".into());
+        s.notice("b".into());
+        assert_eq!(s.take_notices(), vec!["a".to_string(), "b".to_string()]);
+        assert!(s.take_notices().is_empty());
+    }
+
+    /// Feed `DeafWatch` at 10 ms steps from `t` for `secs`; returns the new
+    /// time and the times it asked for a reopen.
+    fn feed(
+        w: &mut DeafWatch,
+        mut t: f64,
+        secs: f64,
+        heard: impl Fn(f64) -> bool,
+        playing: impl Fn(f64) -> bool,
+    ) -> (f64, Vec<f64>) {
+        let end = t + secs;
+        let mut hits = Vec::new();
+        while t < end - 1e-9 {
+            t += 0.01;
+            if w.update(t, heard(t), playing(t)) {
+                hits.push(t);
+            }
+        }
+        (t, hits)
+    }
+
+    #[test]
+    fn deaf_watch_only_fires_when_playing_but_unheard() {
+        let mut w = DeafWatch::new(0.0);
+        // normal call: speaker plays and the loopback hears it
+        let (t, hits) = feed(&mut w, 0.0, 60.0, |_| true, |_| true);
+        assert!(hits.is_empty());
+        // nothing playing, nothing heard (idle loopback): fine
+        let (t, hits) = feed(&mut w, t, 60.0, |_| false, |_| false);
+        assert!(hits.is_empty());
+        // short blips on the meter (< 1.5 s of playing within each burst,
+        // quiet in between) never add up
+        let (t, hits) = feed(&mut w, t, 60.0, |_| false, |t| t % 4.0 < 1.0);
+        assert!(hits.is_empty(), "{hits:?}");
+        // the loopback goes deaf while the speaker keeps playing: fires
+        // after ~3 s, then backs off 30 s, 60 s, ...
+        let t0 = t;
+        let (t, hits) = feed(&mut w, t, 100.0, |_| false, |_| true);
+        assert_eq!(hits.len(), 3, "{hits:?}");
+        assert!((hits[0] - t0 - 3.0).abs() < 0.05, "{hits:?}");
+        assert!((hits[1] - hits[0] - 30.0).abs() < 0.05, "{hits:?}");
+        assert!((hits[2] - hits[1] - 60.0).abs() < 0.05, "{hits:?}");
+        // speech with pauses (meter low 40 % of the time) still counts
+        let mut w = DeafWatch::new(t);
+        let (_, hits) = feed(&mut w, t, 10.0, |_| false, |t| t % 1.0 < 0.6);
+        assert!(!hits.is_empty());
+        // once the loopback hears again, the observation starts over
+        let mut w = DeafWatch::new(0.0);
+        let (_, hits) = feed(&mut w, 0.0, 30.0, |t| t % 2.5 < 0.02, |_| true);
+        assert!(hits.is_empty(), "{hits:?}");
+        // after 10 minutes without a reopen, the back-off starts over
+        let mut w = DeafWatch::new(0.0);
+        let (t, hits) = feed(&mut w, 0.0, 40.0, |_| false, |_| true);
+        assert_eq!(hits.len(), 2);
+        let (t, _) = feed(&mut w, t, 700.0, |_| true, |_| true);
+        let (_, hits) = feed(&mut w, t, 40.0, |_| false, |_| true);
+        assert_eq!(hits.len(), 2, "{hits:?}");
+    }
+
+    #[test]
+    fn peak_of_block() {
+        assert_eq!(peak(&[]), 0.0);
+        assert_eq!(peak(&[0.1, -0.5, 0.3]), 0.5);
     }
 }

@@ -160,7 +160,10 @@ impl AecProcessor {
 pub enum DeviceKind { Mic, Speaker }
 pub struct DeviceInfo { pub kind: DeviceKind, pub name: String, pub id: String,
                         pub channels: u16, pub default: bool }
-pub trait InputStream: Send { fn read(&mut self, out: &mut [f32]) -> anyhow::Result<()>; } // blocks until full
+pub trait InputStream: Send {
+    fn read(&mut self, out: &mut [f32]) -> anyhow::Result<()>;   // blocks until full
+    fn take_notices(&mut self) -> Vec<String> { Vec::new() }      // device-side log lines
+}
 pub trait OutputStream: Send { fn write(&mut self, x: &[f32]) -> anyhow::Result<()>; }    // blocks until queued
 pub trait AudioBackend: Send + Sync {
     fn list_devices(&self) -> anyhow::Result<Vec<DeviceInfo>>;
@@ -179,6 +182,11 @@ render thread (`wasapi` crate) feeding a lock-free ring buffer; `read` /
 `write` block on it.  Multi-channel devices are down-mixed / duplicated.
 Loopback endpoints that deliver no packets while nothing plays must still
 produce silence at the nominal rate (like soundcard's idle handling).
+Streams that stop without an error are caught (0.4.9): `read` / `write` fail
+after `STALL_TIMEOUT` (5 s) without any data moving, so the app's recovery
+restarts the pipeline; a loopback that goes deaf (the endpoint's peak meter
+shows playback, the loopback hears nothing for 3 s; `DeafWatch`) is re-opened
+in place, with back-off, and logged through `take_notices`.
 Every audio thread (device threads and the pipeline threads in core) joins
 MMCSS "Pro Audio" (`rt::realtime_thread`, fallback `THREAD_PRIORITY_HIGHEST`)
 and the pipeline opts the process out of power throttling

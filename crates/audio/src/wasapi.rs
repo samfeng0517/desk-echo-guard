@@ -17,14 +17,17 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use rtrb::{Consumer, Producer, RingBuffer};
 use wasapi::{
-    AudioClient, Device, DeviceEnumerator, Direction, Handle, SampleType, StreamMode, WasapiError,
-    WaveFormat,
+    AudioClient, AudioMeterInformation, Device, DeviceEnumerator, Direction, Handle, SampleType,
+    StreamMode, WasapiError, WaveFormat,
 };
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+use windows::Win32::System::Com::CLSCTX_ALL;
 
 use crate::stream::{
     bytes_to_mono, capture_ring_capacity, device_buffer_frames, frames_to_hns, hns_to_frames,
-    mono_to_bytes, push_or_drop, read_blocking, render_fill_target, render_frames_now,
-    render_ring_capacity, write_blocking, IdleFiller, Shared, FS,
+    mono_to_bytes, peak, push_or_drop, read_blocking, render_fill_target, render_frames_now,
+    render_ring_capacity, write_blocking, DeafWatch, IdleFiller, Shared, AUDIBLE_PEAK, FS,
+    PLAYING_PEAK, STALL_TIMEOUT,
 };
 use crate::{match_device, AudioBackend, DeviceInfo, DeviceKind, InputStream, OutputStream};
 
@@ -39,6 +42,12 @@ const EVENT_TIMEOUT_MS: u32 = 200;
 const IDLE_GRACE_PERIODS: f64 = 3.0;
 /// AUDCLNT_E_DEVICE_INVALIDATED
 const DEVICE_INVALIDATED: u32 = 0x8889_0004;
+/// Endpoint volume below this (or muted): a loopback that captures after
+/// the volume may legitimately hear only silence, so the deaf-loopback check
+/// then counts any packet as "heard".
+const MIN_VOLUME_DB: f32 = -30.0;
+/// How often the deaf-loopback check re-reads volume / mute.
+const VOLUME_POLL_S: f64 = 0.5;
 
 /// COM for the current thread (MTA); uninitialised on drop only if the
 /// init succeeded (S_OK and S_FALSE both need a matching uninit).
@@ -192,6 +201,54 @@ fn open_client(dev: &Device, stream_dir: Direction, blocksize: usize) -> Result<
     })
 }
 
+/// Watches a loopback for going deaf (see `DeafWatch`): the endpoint's peak
+/// meter says the speaker plays, the loopback hears nothing.
+struct LoopbackCheck {
+    meter: AudioMeterInformation,
+    volume: Option<IAudioEndpointVolume>,
+    /// volume high enough and not muted, so the loopback must hear sound
+    strict: bool,
+    volume_at: f64,
+    watch: DeafWatch,
+}
+
+impl LoopbackCheck {
+    /// `None` when the endpoint has no peak meter (the check is skipped).
+    fn new(dev: &Device, now: f64) -> Option<Self> {
+        let meter = dev.get_audiometerinformation().ok()?;
+        // SAFETY: COM call on the thread that created `dev`.
+        let volume = unsafe {
+            dev.as_immdevice()
+                .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+        }
+        .ok();
+        Some(Self {
+            meter,
+            volume,
+            strict: false,
+            volume_at: f64::NEG_INFINITY,
+            watch: DeafWatch::new(now),
+        })
+    }
+
+    /// One wake-up: `packets` = the loopback delivered anything, `audible`
+    /// = some of it was above digital silence.  True = re-open now.
+    fn update(&mut self, now: f64, packets: bool, audible: bool) -> bool {
+        if now - self.volume_at >= VOLUME_POLL_S {
+            self.volume_at = now;
+            self.strict = self.volume.as_ref().is_some_and(|v| {
+                // SAFETY: COM calls on the creating thread.
+                let muted = unsafe { v.GetMute() }.map_or(true, |b| b.as_bool());
+                let db = unsafe { v.GetMasterVolumeLevel() }.unwrap_or(f32::NEG_INFINITY);
+                !muted && db > MIN_VOLUME_DB
+            });
+        }
+        let playing = self.meter.get_peak_value().is_ok_and(|p| p >= PLAYING_PEAK);
+        let heard = if self.strict { audible } else { packets };
+        self.watch.update(now, heard, playing)
+    }
+}
+
 type InitTx<T> = SyncSender<std::result::Result<T, String>>;
 
 /// Spawn a device thread and wait until it reports that the stream runs.
@@ -252,35 +309,44 @@ fn capture_body(
         (Direction::Capture, "microphone")
     };
     let (dev, label) = resolve(&en, dev_dir, name.as_deref(), what)?;
-    let o = open_client(&dev, Direction::Capture, blocksize)?;
-    let capture = o.client.get_audiocaptureclient()?;
+    let mut o = open_client(&dev, Direction::Capture, blocksize)?;
+    let mut capture = o.client.get_audiocaptureclient()?;
     let cap = capture_ring_capacity(blocksize, o.buffer_frames);
     let (mut prod, cons): (Producer<f32>, _) = RingBuffer::new(cap);
 
     let mut bytes = vec![0u8; o.buffer_frames.max(1) * o.block_align];
     let mut mono: Vec<f32> = Vec::with_capacity(cap);
     let period_s = o.period_frames as f64 / FS as f64;
-    let timeout_ms = if loopback {
-        // wake at least once per period to synthesise idle silence
-        ((period_s * 1000.0).ceil() as u32).max(1)
-    } else {
-        EVENT_TIMEOUT_MS
+    // loopback: wake at least once per period to synthesise idle silence
+    let timeout_ms = |o: &Opened| {
+        if loopback {
+            ((o.period_frames as f64 / FS as f64 * 1000.0).ceil() as u32).max(1)
+        } else {
+            EVENT_TIMEOUT_MS
+        }
     };
     let t0 = Instant::now();
     let now = || t0.elapsed().as_secs_f64();
     let mut idle = loopback.then(|| IdleFiller::new(now(), IDLE_GRACE_PERIODS * period_s));
+    let mut check = if loopback {
+        LoopbackCheck::new(&dev, now())
+    } else {
+        None
+    };
+    let mut reopens = 0u32;
 
     o.client.start_stream()?;
     if let Some(tx) = init.take() {
-        let _ = tx.send(Ok((cons, label)));
+        let _ = tx.send(Ok((cons, label.clone())));
     }
 
     while !shared.stop_requested() {
         // Err = timeout; either way drain whatever is there.  The packet
         // size query also surfaces device invalidation after a timeout.
-        let _ = o.event.wait_for_event(timeout_ms);
+        let _ = o.event.wait_for_event(timeout_ms(&o));
         mono.clear();
         let mut real = false;
+        let mut audible = false;
         loop {
             match capture.get_next_packet_size()? {
                 Some(0) => break,
@@ -293,8 +359,10 @@ fn capture_body(
                 break;
             }
             let n = frames as usize * o.block_align;
+            let start = mono.len();
             bytes_to_mono(&bytes[..n], o.channels, info.flags.silent, &mut mono);
             real = true;
+            audible = audible || peak(&mono[start..]) > AUDIBLE_PEAK;
         }
         if let Some(f) = idle.as_mut() {
             let t = now();
@@ -310,6 +378,26 @@ fn capture_body(
             // pipeline's elastic buffers recover from the gap.
             let _dropped = push_or_drop(&mut prod, &mono);
             shared.notify();
+        }
+        if check
+            .as_mut()
+            .is_some_and(|c| c.update(now(), real, audible))
+        {
+            // The speaker plays but the loopback stream hears nothing: open
+            // a fresh one (what choosing another speaker and back did by
+            // hand).  The idle filler bridges the gap with silence, so the
+            // reference stays in step with the microphone.
+            reopens += 1;
+            shared.notice(format!(
+                "[loopback] '{label}' is playing but the loopback heard nothing for 3 s; \
+                 re-opening it (#{reopens})"
+            ));
+            let _ = o.client.stop_stream();
+            let fresh = open_client(&dev, Direction::Capture, blocksize)?;
+            capture = fresh.client.get_audiocaptureclient()?;
+            o = fresh;
+            bytes.resize(o.buffer_frames.max(1) * o.block_align, 0);
+            o.client.start_stream()?;
         }
     }
     let _ = o.client.stop_stream();
@@ -376,7 +464,11 @@ impl WasapiInput {
 
 impl InputStream for WasapiInput {
     fn read(&mut self, out: &mut [f32]) -> Result<()> {
-        read_blocking(&mut self.cons, &self.shared, &self.what, out)
+        read_blocking(&mut self.cons, &self.shared, &self.what, out, STALL_TIMEOUT)
+    }
+
+    fn take_notices(&mut self) -> Vec<String> {
+        self.shared.take_notices()
     }
 }
 
@@ -406,7 +498,7 @@ impl WasapiOutput {
 
 impl OutputStream for WasapiOutput {
     fn write(&mut self, x: &[f32]) -> Result<()> {
-        write_blocking(&mut self.prod, &self.shared, &self.what, x)
+        write_blocking(&mut self.prod, &self.shared, &self.what, x, STALL_TIMEOUT)
     }
 }
 

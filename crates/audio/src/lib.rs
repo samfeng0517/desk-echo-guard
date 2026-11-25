@@ -32,6 +32,11 @@ pub struct DeviceInfo {
 pub trait InputStream: Send {
     /// Block until `out` is filled.
     fn read(&mut self, out: &mut [f32]) -> Result<()>;
+    /// Things the device side wants in the log since the last call (e.g. a
+    /// loopback that had to be re-opened); the stream keeps running.
+    fn take_notices(&mut self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub trait OutputStream: Send {
